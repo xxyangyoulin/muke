@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CHROME_BIN: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring, curl, fileinfo, zip
+
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick sqlite3 unzip
+          # Ubuntu 打包的是 IM6（convert），项目命令使用 IM7 的 magick —— 建立等价 shim
+          sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
+
+      - name: Ensure Chrome（runner 镜像未预装时补装）
+        run: |
+          if [ ! -x /usr/bin/google-chrome ]; then
+            wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            sudo apt-get install -y -qq ./google-chrome-stable_current_amd64.deb
+          fi
+          google-chrome --version
+
+      - name: Run test suite（lint + 沙箱 + API + 浏览器冒烟 + 导出）
+        run: bash tests/run.sh

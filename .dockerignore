@@ -1,0 +1,17 @@
+.git
+.github
+.idea
+.agents
+.codex
+.aws
+.env*
+.netlify
+.export-*
+.dist-previous-*
+config.php
+var
+dist
+build
+*.zip
+*.log
+cookies*.txt

@@ -1,0 +1,11 @@
+/var/*
+!/var/.gitkeep
+/dist/
+/build/
+/.netlify/
+/config.php
+.idea/
+*.log
+nohup.out
+*.zip
+cookies*.txt

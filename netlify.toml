@@ -1,0 +1,4 @@
+# 静态站点发布目录；响应头统一由导出生成的 dist/_headers 提供
+# （含第三方评论的 frame-src 例外与 /embed/* 分区 CSP，勿在此重复定义以免覆盖）
+[build]
+  publish = "dist"

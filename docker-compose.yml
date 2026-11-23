@@ -1,0 +1,11 @@
+services:
+  mkblog:
+    build: .
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./var:/app/var                 # 数据库、上传图片、缓存（持久化）
+      - /path/to/your/wallpapers:/wallpapers     # 改成你的壁纸目录；上传/删除需要可写权限
+    environment:
+      - MKBLOG_WALLPAPER_DIR=/wallpapers
+      # - MKBLOG_HTTP_PROXY=http://host.docker.internal:7890
