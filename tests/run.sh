@@ -74,6 +74,7 @@ cp "$ROOT/tests/fixtures/plugin.php" "$SBOX/plugins/contract/plugin.php"
 "$PHP" "$ROOT/tests/rss-plugin.php" "$SBOX"
 "$PHP" "$ROOT/tests/dms-plugin.php" "$SBOX"
 "$PHP" "$ROOT/tests/deploy-sync.php" "$SBOX"
+"$PHP" "$ROOT/tests/deploy-spawn.php" "$SBOX"
 "$PHP" "$ROOT/tests/sync-scheduler.php" "$SBOX" auto-deploy-test
 "$PHP" "$ROOT/tests/scheduled-backup.php" "$SBOX"
 "$PHP" "$ROOT/tests/backup-export.php" "$SBOX"

@@ -41,7 +41,8 @@ function deploy_spawn(string $script): void {
 cd %s && { for n in /proc/self/fd/*; do fd=${n##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec %s %s >> %s 2>&1 < /dev/null; } &
 SH
         , escapeshellarg($root), escapeshellarg(PHP_SAPI === 'fpm-fcgi' ? PHP_BINDIR . '/php' : PHP_BINARY), escapeshellarg($script), escapeshellarg(DATA_DIR . '/deploy.log'));
-    exec($cmd);
+    // Dash 不支持两位数文件描述符的重定向，显式使用 Bash 关闭全部继承 fd。
+    exec('bash -c ' . escapeshellarg($cmd));
 }
 
 /** 执行完整部署（导出 → 摘要上传 → 状态落盘），后台手动部署与自动部署共用；返回是否成功 */
