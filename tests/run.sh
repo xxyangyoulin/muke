@@ -54,12 +54,13 @@ node "$ROOT/tests/article-revisions.cjs" "http://127.0.0.1:$PORT" "$SBOX"
 node "$ROOT/tests/editor-protection.cjs" "http://127.0.0.1:$PORT" "$SBOX"
 node "$ROOT/tests/feed-search.cjs" "http://127.0.0.1:$PORT" "$SBOX"
 node "$ROOT/tests/rss-tab.cjs" "http://127.0.0.1:$PORT" "$SBOX"
+node "$ROOT/tests/giscus.cjs" "http://127.0.0.1:$PORT" "$SBOX"
 echo "== 导出 =="
 (cd "$SBOX" && "$PHP" bin/export.php >/dev/null)
-sqlite3 "$SBOX/var/blog.sqlite" "INSERT INTO settings (key,value) VALUES ('comment_provider','giscus'),('comment_embed_url','https://giscus.app/en/test') ON CONFLICT(key) DO UPDATE SET value=excluded.value;" 2>/dev/null || true
+sqlite3 "$SBOX/var/blog.sqlite" "INSERT INTO settings (key,value) VALUES ('comment_provider','custom'),('comment_embed_url','https://example.com/comments') ON CONFLICT(key) DO UPDATE SET value=excluded.value;" 2>/dev/null || true
 (cd "$SBOX" && "$PHP" bin/export.php >/dev/null)
 grep -q '冒烟评论' "$SBOX/dist/article/1/index.html" || { echo "静态烘焙评论缺失"; exit 1; }
-grep -q 'giscus.app/en/test' "$SBOX/dist/article/1/index.html" || { echo "第三方评论 iframe 缺失"; exit 1; }
+grep -q 'example.com/comments' "$SBOX/dist/article/1/index.html" || { echo "第三方评论 iframe 缺失"; exit 1; }
 grep -q 'frame-src' "$SBOX/dist/_headers" || { echo "_headers frame-src 缺失"; exit 1; }
 sqlite3 "$SBOX/var/blog.sqlite" "UPDATE settings SET value='waline' WHERE key='comment_provider'; UPDATE settings SET value='https://wl.example.com' WHERE key='comment_embed_url';"
 (cd "$SBOX" && "$PHP" bin/export.php >/dev/null)

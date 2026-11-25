@@ -1,5 +1,6 @@
 // 评论组件：文章详情页（整段面板）与动态卡片（行内展开）共用。
 // 动态部署专用（静态导出走第三方注入/只读烘焙，见 P2）；身份为匿名昵称，浏览器本地记住。
+import { mountGiscus } from './giscus.js';
 import { store } from '../lib/store.js';
 import { api, apiGet } from '../lib/api.js';
 import { icon, esc, toast, dateLabel, thirdPartyComments } from '../lib/ui.js';
@@ -98,9 +99,10 @@ function readonlySectionHTML(list) {
 export function mountComments(kind, id, count, host, bakedList) {
  if (!host || provider() === 'off') return;
  const p = provider();
- if (p === 'giscus' || p === 'custom' || p === 'waline' || p === 'twikoo') {
-  // 第三方：统一 iframe（giscus/custom 直连外部；waline/twikoo 走同源嵌入页）
-  const src = (p === 'giscus' || p === 'custom') ? store.state.options.comment_embed_url : '/embed/comments/';
+ if (p === 'giscus') { mountGiscus(kind, id, host, store.state.options); return; }
+ if (p === 'custom' || p === 'waline' || p === 'twikoo') {
+  // 第三方：统一 iframe（custom 直连外部；waline/twikoo 走同源嵌入页）
+  const src = p === 'custom' ? store.state.options.comment_embed_url : '/embed/comments/';
   if (!src) return;
   host.innerHTML = `<div class="panel comments-panel embed-host"><iframe class="comment-embed" src="${esc(src)}" title="评论" loading="lazy" allow="clipboard-write"></iframe></div>`;
   return;
@@ -113,7 +115,7 @@ export function mountComments(kind, id, count, host, bakedList) {
  bindCommentSection(host.firstElementChild);
 }
 
-/** 动态卡片行内评论位（点「评论」按钮时懒挂载；第三方模式下按钮已隐藏） */
+/** 动态卡片行内评论位（点「评论」按钮时懒挂载；giscus 同时支持动态站和静态站） */
 export function mountInlineComments(post, host) {
  mountComments('post', post.id, post.comment_count, host);
 }

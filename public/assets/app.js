@@ -3,6 +3,7 @@ import { api, apiGet, embeddedJson } from './lib/api.js';
 import { icon, esc, toast, empty, postItems, updateProfile } from './lib/ui.js';
 import { openLightbox } from './components/lightbox.js';
 import { renderComposeImages, renderEditImages } from './components/composer.js';
+import { mountGiscus } from './components/giscus.js';
 import { mountInlineComments } from './components/comments.js';
 import { feed } from './views/feed.js';
 import { loadArticles, articlesPage, articlePage } from './views/articles.js';
@@ -68,6 +69,17 @@ document.addEventListener('click',async e=>{
   } catch (error) { toast(error.message); pin.disabled = false; }
  }
  const close=e.target.closest('[data-close]');if(close)document.getElementById(close.dataset.close).close();
+ const giscusLike = e.target.closest('[data-giscus-like]');
+ if (giscusLike) {
+  const id = Number(giscusLike.dataset.giscusLike);
+  const slot = document.querySelector(`[data-comments-slot="${id}"]`);
+  if (slot) {
+   slot.hidden = false;
+   if (!slot.firstChild) mountGiscus('post', id, slot, store.state.options);
+   slot.scrollIntoView({block:'nearest', behavior:'smooth'});
+   toast('在下方选择 ❤️，通过 GitHub 同步点赞');
+  }
+ }
  const like=e.target.closest('[data-like]');if(like){const id=Number(like.dataset.like);const was=store.likedIds.has(id);like.disabled=true;like.classList.toggle('liked',!was);like.querySelector('span').textContent=!was?'已点赞':'点赞';api('like',{id,token:store.likeToken}).then(r=>{store.likedIds.has(id)?store.likedIds.delete(id):store.likedIds.add(id);const small=like.querySelector('small')||like.appendChild(document.createElement('small'));small.textContent=r.count>0?` ${r.count}`:'';}).catch(()=>{like.classList.toggle('liked',was);like.querySelector('span').textContent=was?'已点赞':'点赞';toast('点赞失败，稍后再试');}).finally(()=>{like.disabled=false;});}
  const share=e.target.closest('[data-share]');if(share){const url=location.origin+'/#post-'+share.dataset.share;try{await navigator.clipboard.writeText(url);toast('动态链接已复制');}catch{toast('请复制链接：'+url);}}
  const edit=e.target.closest('[data-edit]');if(edit){const p=store.posts.find(p=>p.id===Number(edit.dataset.edit));const form=document.querySelector('#edit-form');form.elements.content.value=p.content;form.elements.id.value=p.id;store.editKeep=(p.images||[]).map(img=>img.ref).filter(Boolean);renderEditImages();document.querySelector('#edit-dialog').showModal();}
@@ -117,7 +129,7 @@ async function init(){
  try{
   if(store.isStatic){const d=embeddedJson('embedded-content')??await(await fetch('/assets/content.json').then(r=>{if(!r.ok)throw new Error('静态数据加载失败');return r.json();}));store.state=d.state;store.posts=d.posts;store.pluginsData=d.plugins||{};store.pluginsMeta=d.plugins_meta||{};}
   else{const results=await Promise.all([api('state'),api('posts')]);store.state=results[0];store.posts=results[1].posts;}
-  if (!store.isStatic) { try { const lk = await apiGet('likes', { token: store.likeToken }); store.likedIds = new Set(lk.liked); } catch {} }
+  if (!store.isStatic && store.state.options?.comment_provider !== 'giscus') { try { const lk = await apiGet('likes', { token: store.likeToken }); store.likedIds = new Set(lk.liked); } catch {} }
   if (store.isStatic) { await modulesReady(); await loadArticles().catch(() => {}); } // 静态：文章一并就绪，首帧渲染即完整结构（只出现一次「加载→内容」切换，无结构闪变）
   updateProfile();
   document.dispatchEvent(new CustomEvent('mkblog:data')); // 插件模块（如壁纸）由此加载数据、启动定时器

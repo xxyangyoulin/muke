@@ -141,6 +141,20 @@ function api_remove_cover(PDO $db, array $input, string $action, bool $admin): n
 }
 
 function api_save_settings(PDO $db, array $input, string $action, bool $admin): never {
+    $giscus = [];
+    foreach (['giscus_repo' => '~^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$~', 'giscus_repo_id' => '/^[A-Za-z0-9_=-]+$/', 'giscus_category_id' => '/^[A-Za-z0-9_=-]+$/'] as $key => $pattern) {
+        if (!array_key_exists($key, $input)) continue;
+        if (!is_string($input[$key])) json_response(['error' => 'giscus 配置格式无效'], 422);
+        $value = trim($input[$key]);
+        if ($value !== '' && (strlen($value) > 200 || !preg_match($pattern, $value))) json_response(['error' => 'giscus 仓库或分类 ID 格式无效'], 422);
+        $giscus[$key] = $value;
+    }
+    if (($input['comment_provider'] ?? comment_provider()) === 'giscus') {
+        foreach (['giscus_repo', 'giscus_repo_id', 'giscus_category_id'] as $key) {
+            if (($giscus[$key] ?? (string)opt($key)) === '') json_response(['error' => '请填写 giscus 仓库、仓库 ID 和分类 ID'], 422);
+        }
+    }
+    foreach ($giscus as $key => $value) save_setting($db, $key, $value);
     $textRules = ['site_subtitle' => 40, 'site_tagline' => 60, 'site_description' => 200, 'date_format' => 40, 'date_format_short' => 40, 'cover_badge' => 30];
     $intRules = ['post_max_chars' => [1, 5000], 'post_max_images' => [1, 9], 'upload_max_mb' => [1, 100], 'article_max_bytes' => [1024, 20971520], 'thumb_size' => [100, 2000], 'thumb_quality' => [1, 100], 'avatar_size' => [100, 1000], 'reading_chars_per_minute' => [50, 3000], 'comment_rate_seconds' => [0, 3600]];
     $saved = 0;

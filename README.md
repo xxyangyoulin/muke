@@ -1,6 +1,6 @@
 # 木刻 MUKE
 
-当前版本：**0.2.1**。版本号以 [VERSION](VERSION) 为准，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**0.3.0**。版本号以 [VERSION](VERSION) 为准，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 PHP + SQLite 的个人动态 / 文章 / 壁纸收藏站。零框架、零构建：前端原生 HTML/CSS/JS，后端函数式 PHP，唯一第三方库是 [Parsedown](https://parsedown.org)（Markdown 渲染）。
 
@@ -69,13 +69,13 @@ pm2 logs mkblog-sync --lines 50
 采用 `major.minor.patch` 版本号。先修改 `VERSION` 和 `CHANGELOG.md`，提交本次发布所需的全部代码，再推送对应标签：
 
 ```sh
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 标签必须与该提交的 `VERSION` 一致。GitHub Actions 会先运行完整测试，再生成项目安装 ZIP 和 `SHA256SUMS`，上传至对应 GitHub Release；不执行静态站点导出。使用仓库自带的 `GITHUB_TOKEN`，不需要配置个人令牌；仓库须允许 GitHub Actions 运行及工作流申请 `contents: write` 权限。
 
-本地可执行 `bash scripts/package.sh v0.2.1`（仅在 Git 源码仓库中使用），产物在 `build/release/`。打包只读取 **HEAD 中已提交的文件**，不包含尚未提交的修改；私有配置、数据库、上传图片、壁纸原图、缓存和 `dist/` 均不打包。新的版本请创建新的标签，不移动已发布标签；更新版本号时同步更新本页版本与命令示例。
+本地可执行 `bash scripts/package.sh v0.3.0`（仅在 Git 源码仓库中使用），产物在 `build/release/`。打包只读取 **HEAD 中已提交的文件**，不包含尚未提交的修改；私有配置、数据库、上传图片、壁纸原图、缓存和 `dist/` 均不打包。新的版本请创建新的标签，不移动已发布标签；更新版本号时同步更新本页版本与命令示例。
 
 升级前先做完整备份。将新版本解压至新目录，接回自己的配置与数据目录，运行环境自检后再切换服务；数据库迁移会在首次启动执行，回退旧代码可能还需要恢复升级前的数据备份。
 
@@ -137,6 +137,12 @@ git push origin v0.2.1
 备份使用现有完整 ZIP 格式，包含数据库、上传图片及插件声明的资源（含壁纸原图），保存到数据目录下的 `backups/`，不位于 Web 根目录。文件名以 `muke-auto-` 开头；只有新备份成功后才清理超出保留份数的自动 ZIP，手动备份不参与轮换。关闭定期备份不会删除已有文件。恢复仍使用下文的 `bin/restore.php`，不会自动覆盖当前数据。
 
 请预留至少一份完整备份的额外空间；备份期间为保证一致性会占用数据库写事务，修改内容可能等待。外部程序应避免同时改写资源。备份目标不能位于被备份的资源目录内；同盘备份不能防磁盘损坏，重要数据还应另行离机保存。升级后台代码后运行 `pm2 restart mkblog-sync` 使常驻进程加载新功能。
+
+### giscus 评论
+
+公开 GitHub 仓库开启 Discussions，并安装 [giscus App](https://github.com/apps/giscus) 授权该仓库。在 [giscus 配置页](https://giscus.app/zh-CN)选择仓库及 Announcements 类型分类，将 `data-repo`、`data-repo-id`、`data-category-id` 填入后台「评论 → 评论设置」，选择 giscus 后保存。无需在网站配置 GitHub 令牌。
+
+文章与动态分别按 `article:ID`、`post:ID` 关联讨论，动态站和静态导出共用相同映射；评论需 GitHub 登录，在仓库 Discussions 管理，原生评论审核、邮件与反垃圾设置不作用于 giscus。静态站需重新导出和部署才能应用配置。已有原生评论不会自动迁移到 GitHub。giscus 模式下，动态点赞按钮展开反应区，登录 GitHub 后选择 ❤️ 即可在动态站和静态站共用点赞；展开组件后会更新卡片的爱心数量和当前用户状态。历史本地点赞不迁移。每次静态导出会通过 giscus 公开接口查询评论总数（含全部分页的回复）和 ❤️ 数量，写入首页、文章及 RSS 订阅卡片数据，无需额外服务器或令牌。打开评论区前显示最近一次导出的统计，下一次部署刷新；计数不代表访客个人点赞状态。接口失败会中止本次导出并保留上一版产物，避免错误归零。
 
 ## 备份与安全
 

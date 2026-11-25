@@ -141,7 +141,7 @@ function comment_article_only(): bool {
     return (string)opt('comment_scope') === 'article';
 }
 
-/** 嵌入地址（giscus/custom = iframe src；waline = serverURL；twikoo = envId/部署地址） */
+/** 嵌入地址（custom = iframe src；waline = serverURL；twikoo = envId/部署地址） */
 function comment_embed_url(): string {
     return trim((string)opt('comment_embed_url'));
 }
@@ -149,7 +149,8 @@ function comment_embed_url(): string {
 /** 需要追加到全站 CSP 的 frame-src 源（giscus/custom 的外部 iframe；waline/twikoo 走同源 embed 页不需要） */
 function comment_csp_extra(): string {
     $p = comment_provider();
-    if (!in_array($p, ['giscus', 'custom'], true)) return '';
+    if ($p === 'giscus') return "; frame-src 'self' https://giscus.app";
+    if ($p !== 'custom') return '';
     $url = comment_embed_url();
     if (!preg_match('#^https?://#', $url)) return '';
     $origin = parse_url($url, PHP_URL_SCHEME) . '://' . parse_url($url, PHP_URL_HOST) . (parse_url($url, PHP_URL_PORT) ? ':' . parse_url($url, PHP_URL_PORT) : '');
@@ -168,10 +169,15 @@ function comments_embed_html(): string {
 }
 
 /** 前端 iframe 片段（文章页/嵌入第三方时使用） */
-function comments_iframe_html(): string {
+function comments_iframe_html(string $kind, int $id): string {
     if (!comment_enabled()) return '';
     $p = comment_provider();
-    if ($p === 'giscus' || $p === 'custom') {
+    if ($p === 'giscus') {
+        if (!(string)opt('giscus_repo') || !(string)opt('giscus_repo_id') || !(string)opt('giscus_category_id')) return '';
+        $query = http_build_query(['repo' => (string)opt('giscus_repo'), 'repoId' => (string)opt('giscus_repo_id'), 'categoryId' => (string)opt('giscus_category_id'), 'term' => $kind . ':' . $id, 'strict' => '1', 'theme' => 'light', 'reactionsEnabled' => '1', 'inputPosition' => 'top'], '', '&', PHP_QUERY_RFC3986);
+        return '<div class="panel comments-panel embed-host"><iframe class="comment-embed" src="https://giscus.app/zh-CN/widget?' . h($query) . '" title="giscus 评论" loading="lazy" allow="clipboard-write"></iframe></div>';
+    }
+    if ($p === 'custom') {
         $src = comment_embed_url();
         return preg_match('#^https?://#', $src) ? '<div class="panel comments-panel embed-host"><iframe class="comment-embed" src="' . h($src) . '" title="评论" loading="lazy" allow="clipboard-write"></iframe></div>' : '';
     }
@@ -194,4 +200,56 @@ function comments_readonly_html(PDO $db, string $kind, int $targetId): string {
             . '<time>' . $e(date_short_label($c['created_at'])) . '</time></div><p class="comment-content">' . $e($c['content']) . '</p></div></div>';
     }
     return $html . '</section>';
+}
+
+function giscus_export_counts(array $terms, ?callable $checkCancelled = null): array {
+    $queue = array_map(fn($term) => ['term' => $term, 'after' => ''], array_values(array_unique($terms)));
+    $counts = [];
+    while ($queue) {
+        if ($checkCancelled) $checkCancelled();
+        $multi = curl_multi_init();
+        $handles = [];
+        try {
+            foreach (array_splice($queue, 0, 4) as $job) {
+                $query = http_build_query(['repo' => (string)opt('giscus_repo'), 'term' => $job['term'], 'strict' => 'true', 'first' => 50, 'after' => $job['after']]);
+                $ch = curl_init('https://giscus.app/api/discussions?' . $query);
+                curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_PROXY => (string)opt('http_proxy'), CURLOPT_HTTPHEADER => ['Accept: application/json'], CURLOPT_USERAGENT => 'MUKE static export']);
+                curl_multi_add_handle($multi, $ch);
+                $handles[] = [$ch, $job];
+            }
+            do {
+                if ($checkCancelled) $checkCancelled();
+                $code = curl_multi_exec($multi, $running);
+                if ($code !== CURLM_OK) throw new RuntimeException('giscus 统计查询失败');
+                if ($running) curl_multi_select($multi, 0.2);
+            } while ($running);
+            foreach ($handles as [$ch, $job]) {
+                $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                $data = json_decode((string)curl_multi_getcontent($ch), true);
+                $term = $job['term'];
+                if ($status === 404 && ($data['error'] ?? '') === 'Discussion not found' && $job['after'] === '') {
+                    $counts[$term] = ['comments' => 0, 'likes' => 0];
+                    continue;
+                }
+                $discussion = $data['discussion'] ?? [];
+                $comments = $discussion['totalCommentCount'] ?? null;
+                $replies = $discussion['totalReplyCount'] ?? null;
+                $likes = $discussion['reactions']['HEART']['count'] ?? null;
+                if ($status !== 200 || !is_int($comments) || $comments < 0 || !is_int($replies) || $replies < 0 || !is_int($likes) || $likes < 0) {
+                    throw new RuntimeException('giscus 统计同步失败（' . $term . '，HTTP ' . $status . '），请稍后重试');
+                }
+                if ($job['after'] === '') $counts[$term] = ['comments' => $comments, 'likes' => $likes];
+                $counts[$term]['comments'] += $replies;
+                if (!empty($discussion['pageInfo']['hasNextPage'])) {
+                    $cursor = $discussion['pageInfo']['endCursor'] ?? '';
+                    if (!is_string($cursor) || $cursor === '' || $cursor === $job['after']) throw new RuntimeException('giscus 统计分页游标无效');
+                    $queue[] = ['term' => $term, 'after' => $cursor];
+                }
+            }
+        } finally {
+            foreach ($handles as [$ch]) { curl_multi_remove_handle($multi, $ch); curl_close($ch); }
+            curl_multi_close($multi);
+        }
+    }
+    return $counts;
 }

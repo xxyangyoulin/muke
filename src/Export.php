@@ -26,6 +26,18 @@ function export_site(PDO $db, ?callable $checkCancelled = null): array {
         if ($checkCancelled) $checkCancelled();
         export_resolve_articles($ctx);
         if ($checkCancelled) $checkCancelled();
+        if (comment_provider() === 'giscus') {
+            $terms = array_merge(array_map(fn($p) => 'post:' . $p['id'], $ctx['posts']), array_map(fn($a) => 'article:' . $a['id'], $ctx['articles']), array_map(fn($p) => 'post:' . $p['id'], $ctx['pluginItems']['rss']['posts'] ?? []));
+            $counts = giscus_export_counts($terms, $checkCancelled);
+            foreach ($ctx['posts'] as &$post) $post['giscus_counts'] = $counts['post:' . $post['id']];
+            unset($post);
+            foreach ($ctx['articles'] as &$article) $article['giscus_counts'] = $counts['article:' . $article['id']];
+            unset($article);
+            if (isset($ctx['pluginItems']['rss']['posts'])) {
+                foreach ($ctx['pluginItems']['rss']['posts'] as &$post) $post['giscus_counts'] = $counts['post:' . $post['id']];
+                unset($post);
+            }
+        }
         export_write_json($ctx);
         if ($checkCancelled) $checkCancelled();
         export_bake_pages($ctx);
@@ -221,7 +233,7 @@ function export_write_json(array &$ctx): void {
     [$db, $dest] = [$ctx['db'], $ctx['dest']];
     $pluginPageMap = plugin_pages($db); // 启用插件的页面（含路由与标题）
     $data = ['state' => ['admin' => false, 'setup' => false, 'profile' => $ctx['profile'], 'plugins' => public_plugins($db), 'options' => public_options()], 'posts' => $ctx['posts'], 'plugins' => $ctx['pluginItems'], 'plugins_meta' => $ctx['pluginMeta']];
-    $articlesData = ['articles' => array_map(fn($a) => ['id' => (int)$a['id'], 'title' => $a['title'], 'html' => $a['html'], 'tags' => $a['tags'], 'created_at' => $a['created_at'], 'updated_at' => $a['updated_at'], 'comments' => comment_enabled() ? comments_of($db, 'article', (int)$a['id']) : []], $ctx['articles'])];
+    $articlesData = ['articles' => array_map(fn($a) => ['id' => (int)$a['id'], 'title' => $a['title'], 'html' => $a['html'], 'tags' => $a['tags'], 'created_at' => $a['created_at'], 'updated_at' => $a['updated_at'], 'comments' => comment_enabled() ? comments_of($db, 'article', (int)$a['id']) : [], 'giscus_counts' => $a['giscus_counts'] ?? null], $ctx['articles'])];
     file_put_contents($dest . '/assets/articles.json', json_encode($articlesData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     file_put_contents($dest . '/assets/content.json', json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     $ctx['articlesData'] = $articlesData;
@@ -297,7 +309,7 @@ function export_bake_pages(array &$ctx): void {
             $minutes = max(1, (int)ceil(mb_strlen(strip_tags($currentArticle['html'])) / max(50, (int)opt('reading_chars_per_minute'))));
             $body = '<article class="article-page"><div class="article-head"><h1>' . $escape($currentArticle['title']) . '</h1><div class="article-meta"><span>' . $escape(date((string)opt('date_format'), strtotime($currentArticle['created_at']))) . '</span><span>' . $minutes . ' 分钟阅读</span></div>' . (($currentArticle['tags'] ?? '') !== '' ? '<span class="article-tags">' . implode('', array_map(fn($t) => '<a class="tag-chip" href="/articles/?tag=' . rawurlencode($t) . '">#' . $escape($t) . '</a>', explode(',', $currentArticle['tags']))) . '</span>' : '') . '</div><div class="article-content">' . $currentArticle['html'] . '</div><footer class="article-footer"><a class="secondary" href="/articles/">回到文章列表</a></footer></article>';
             $body .= comments_readonly_html($db, 'article', (int)$currentArticle['id']);
-            $body .= comments_iframe_html();
+            $body .= comments_iframe_html('article', (int)$currentArticle['id']);
         } else {
             $body = '<section class="admin-page"><h1>' . $escape($profile['name']) . '</h1><p>' . $escape($profile['bio']) . '</p><div class="panel">';
             $feed = [];
@@ -307,7 +319,7 @@ function export_bake_pages(array &$ctx): void {
             foreach ($feed as $item) {
                 if ($item['kind'] === 'article') {
                     $article = $item['data'];
-                    $body .= '<article class="post" id="article-' . $article['id'] . '"><div><strong>' . $escape($profile['name']) . '</strong><a class="article-teaser" href="/article/' . $article['id'] . '/"><div class="article-teaser-text"><span class="article-tag">文章</span><h3>' . $escape($article['title']) . '</h3><p>' . $escape($article['excerpt']) . '</p></div>' . (!empty($article['cover']) ? '<img class="article-teaser-cover" src="' . $escape($article['cover']) . '" alt="" loading="lazy">' : '') . '</a><time>' . $escape(date_short_label($article['created_at'])) . '</time></div></article>';
+                    $body .= '<article class="post" id="article-' . $article['id'] . '"><div><strong>' . $escape($profile['name']) . '</strong><a class="article-teaser" href="/article/' . $article['id'] . '/"><div class="article-teaser-text"><span class="article-tag">文章</span><h3>' . $escape($article['title']) . '</h3><p>' . $escape($article['excerpt']) . '</p>' . (isset($article['giscus_counts']) ? '<span>' . $article['giscus_counts']['comments'] . ' 评论 · ' . $article['giscus_counts']['likes'] . ' 点赞</span>' : '') . '</div>' . (!empty($article['cover']) ? '<img class="article-teaser-cover" src="' . $escape($article['cover']) . '" alt="" loading="lazy">' : '') . '</a><time>' . $escape(date_short_label($article['created_at'])) . '</time></div></article>';
                     continue;
                 }
                 $post = $item['data'];
@@ -322,7 +334,7 @@ function export_bake_pages(array &$ctx): void {
                 } else {
                     $postBody = '<p class="post-content">' . $escape($post['content']) . '</p>' . ($images ? '<div class="post-images count' . count($post['images']) . '">' . $images . '</div>' : '');
                 }
-                $body .= '<article class="post" id="post-' . $post['id'] . '" data-source="' . $escape($post['source'] ?? '') . '"><div><strong>' . $escape($identityName) . '</strong>' . (!empty($post['pinned']) ? '<span class="pinned-label">置顶</span>' : '') . $postBody . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
+                $body .= '<article class="post" id="post-' . $post['id'] . '" data-source="' . $escape($post['source'] ?? '') . '"><div><strong>' . $escape($identityName) . '</strong>' . (!empty($post['pinned']) ? '<span class="pinned-label">置顶</span>' : '') . $postBody . (isset($post['giscus_counts']) ? '<p>' . $post['giscus_counts']['comments'] . ' 评论 · ' . $post['giscus_counts']['likes'] . ' 点赞</p>' : '') . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
             }
             if (!$feed) $body .= '<div class="empty-state"><h3>故事，从这一刻开始</h3><p>记录日常的微小瞬间，收集值得停留的风景。</p></div>';
             $body .= '</div></section>';

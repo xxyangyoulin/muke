@@ -68,8 +68,8 @@ export function adminSectionHTML() {
   const d = store.commentsData;
   const opts = store.state.options || {};
   const provider = opts.comment_provider || '';
-  const thirdParty = ['giscus', 'waline', 'twikoo', 'custom'].includes(provider);
-  const embedHints = { giscus: '粘贴 giscus.app 生成的 iframe 地址', waline: 'serverURL，如 https://waline.example.com', twikoo: 'envId 或部署地址', custom: 'iframe 页面地址' };
+  const thirdParty = ['waline', 'twikoo', 'custom'].includes(provider);
+  const embedHints = { waline: 'serverURL，如 https://waline.example.com', twikoo: 'envId 或部署地址', custom: 'iframe 页面地址' };
   const field = (name, label, input) => `<label>${label}${input}</label>`;
   const sel = (name, options, cur) => `<select name="${name}">${options.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   const inp = (name, type, val, extra = '') => `<input name="${name}" type="${type}" value="${esc(String(val ?? ''))}" ${extra}>`;
@@ -82,6 +82,11 @@ export function adminSectionHTML() {
      ${field('comment_scope', '评论范围', sel('comment_scope', [['','文章 + 动态'],['article','仅文章']], opts.comment_scope || ''))}
      ${field('comment_rate_seconds', '频控窗口（秒）', inp('comment_rate_seconds', 'number', opts.comment_rate_seconds ?? 60, 'min="0" max="3600"'))}
     </div></div>
+    <div class="option-group giscus-group${provider === 'giscus' ? '' : ' hidden'}"><h4>giscus</h4><p class="small-label">在 <a href="https://giscus.app/zh-CN" target="_blank" rel="noopener">giscus 配置页</a>选择公开仓库和 Announcements 类型分类，填写生成代码中的对应值。访客通过 GitHub 登录，评论在仓库 Discussions 管理。</p><div class="options-grid">
+     ${field('giscus_repo', 'GitHub 仓库（data-repo）', inp('giscus_repo', 'text', opts.giscus_repo, 'placeholder="所有者/仓库名"'))}
+     ${field('giscus_repo_id', '仓库 ID（data-repo-id）', inp('giscus_repo_id', 'text', opts.giscus_repo_id, 'placeholder="R_…"'))}
+     ${field('giscus_category_id', '分类 ID（data-category-id）', inp('giscus_category_id', 'text', opts.giscus_category_id, 'placeholder="DIC_…"'))}
+    </div><p class="small-label">文章和动态分别关联独立讨论；原生评论的审核、频控、邮件及反垃圾设置不作用于 giscus。</p></div>
     <div class="option-group embed-group${thirdParty ? '' : ' hidden'}"><h4>第三方嵌入</h4><div class="options-grid">
      ${field('comment_embed_url', '嵌入地址', inp('comment_embed_url', 'text', opts.comment_embed_url, `placeholder="${embedHints[provider] || '见各系统文档'}"`))}
     </div></div>
@@ -421,10 +426,11 @@ export function bindAdminSection() {
  const providerSelect = document.querySelector('#comment-provider-form select[name=comment_provider]');
  if (providerSelect) providerSelect.onchange = () => {
   const v = providerSelect.value;
-  const hints = { giscus: '粘贴 giscus.app 生成的 iframe 地址', waline: 'serverURL，如 https://waline.example.com', twikoo: 'envId 或部署地址', custom: 'iframe 页面地址' };
+  const hints = { waline: 'serverURL，如 https://waline.example.com', twikoo: 'envId 或部署地址', custom: 'iframe 页面地址' };
   const group = document.querySelector('.embed-group');
   const embedInput = document.querySelector('#comment-provider-form input[name=comment_embed_url]');
-  if (group) group.classList.toggle('hidden', !['giscus', 'waline', 'twikoo', 'custom'].includes(v));
+  if (group) group.classList.toggle('hidden', !['waline', 'twikoo', 'custom'].includes(v));
+  document.querySelector('.giscus-group')?.classList.toggle('hidden', v !== 'giscus');
   if (embedInput) embedInput.placeholder = hints[v] || '';
  };
  const deployBtn = document.querySelector('#deploy-site');
