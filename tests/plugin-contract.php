@@ -43,7 +43,7 @@ verify(count($GLOBALS['contract_events']) === 2, '提交后事件缺失');
 $GLOBALS['contract_events'] = array_slice($GLOBALS['contract_events'], 0, 1);
 migrate_database($db);
 verify($GLOBALS['contract_migrations'] === 1, '重复执行已完成迁移');
-verify($db->query("SELECT version FROM schema_versions WHERE component = 'core'")->fetchColumn() === 2, '迁移版本未保存');
+verify($db->query("SELECT version FROM schema_versions WHERE component = 'core'")->fetchColumn() === 4, '迁移版本未保存');
 save_setting($db, 'plugin:contract:enabled', '0');
 verify(plugin_config($db, 'contract')['_enabled'] === false, '默认启用插件无法关闭');
 plugin_fire('post.saved', ['id' => 123]);

@@ -389,15 +389,25 @@ img.comment-avatar{object-fit:cover}
 .admin-tabs::-webkit-scrollbar{display:none}
 .admin-tabs>button{flex-shrink:0}
 /* ---- 插件卡片：标题/状态/描述/操作分层 ---- */
-.plugin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.plugin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.plugin-controls{display:flex;align-items:center;gap:14px;flex-shrink:0;margin-left:auto}
+.plugin-controls .switch-line{margin:0;white-space:nowrap}
 .plugin-title h2{margin-bottom:3px}
 .plugin-desc{margin:8px 0 0;line-height:1.7}
 .plugin-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:14px;padding-top:13px;border-top:1px dashed var(--edge)}
-.plugin-actions .secondary{padding:5px 11px;font-size:12px;border-radius:var(--r-field)}
+.plugin-controls .secondary{padding:5px 11px;font-size:12px;border-radius:var(--r-field)}
 .plugin-danger{margin-left:auto;display:inline-flex;gap:16px}
 .plugin-danger .text-link{color:#c98f96}
 .plugin-danger .text-link:hover{color:#db5b65}
 .plugin-error{margin-top:6px}
+.pinned-label{display:inline-block;color:var(--blue);font-size:12px;margin:0 8px 5px 0}
+.task-table-wrap{overflow-x:auto}
+.task-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+.task-table th,.task-table td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--edge);vertical-align:top}
+.task-table th{white-space:nowrap;color:var(--muted)}
+#task-status .panel{margin-bottom:16px}
+#task-status p{overflow-wrap:anywhere}
+.post-admin [data-pin][aria-pressed="true"]{color:var(--blue)}
 .panel .composer textarea{min-height:82px;height:auto}
 .panel .composer:not(.open) .composer-bottom{display:flex}
 .panel .composer textarea{min-height:82px}
@@ -405,3 +415,32 @@ img.comment-avatar{object-fit:cover}
 .option-legend{display:none;margin-top:10px;padding:9px 12px;background:#f4f7fc;border-radius:var(--r-field);font-size:12px;color:#7d8a9c;line-height:1.9}
 .option-legend b{color:#3b6fc4}
 .option-switch{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#536471;margin:16px 0}
+.search-types{display:flex;gap:6px;margin-top:8px}
+.search-types button{flex:1;padding:5px 10px;border-radius:16px;color:var(--muted);font-size:13px}
+.search-types button:hover{background:var(--hover)}
+.search-types button[aria-pressed="true"]{background:var(--blue-soft);color:var(--blue);font-weight:700}
+.search-highlight{background:#ffe7a0;color:#0f1419;border-radius:3px}
+@media(max-width:760px){
+ .feed-layout>.right-column{display:contents}
+ .feed-layout>.right-column>:not(.side-search){display:none}
+ .feed-layout>.right-column>.side-search{grid-row:1;padding:12px 16px;border-bottom:1px solid var(--line)}
+ .feed-layout>.timeline{grid-row:2}
+}
+.article-history-dialog{width:min(1100px,96vw);max-width:96vw;max-height:90vh;padding:22px}
+.history-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;margin-top:18px}
+.history-sidebar{min-width:0;max-height:65vh;overflow:auto}
+.revision-item{display:block;width:100%;text-align:left;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow-wrap:anywhere}
+.revision-item strong,.revision-item span,.revision-item small{display:block}
+.revision-item strong{font-size:12px}.revision-item small{color:var(--muted)}
+.revision-item[aria-pressed="true"]{background:var(--blue-soft);border-color:var(--blue)}
+#revision-detail{min-width:0;max-height:65vh;overflow:auto}
+.revision-table-wrap{overflow:auto}
+.revision-meta{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0}
+.revision-meta th,.revision-meta td{text-align:left;vertical-align:top;padding:8px;border:1px solid var(--line);overflow-wrap:anywhere;white-space:pre-wrap}
+.revision-meta .changed{background:#fff6d9}
+.revision-diff{margin:12px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.revision-diff pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:5px 12px 5px 28px;position:relative;font:13px/1.6 monospace;min-height:30px}
+.revision-removed{background:#ffebe9;color:#82071e}.revision-added{background:#dafbe1;color:#116329}
+.revision-removed:before{content:'−';position:absolute;left:10px}.revision-added:before{content:'+';position:absolute;left:10px}
+.editor-bottom .dialog-actions{flex-wrap:wrap}
+@media(max-width:760px){.history-layout{grid-template-columns:minmax(0,1fr)}.history-sidebar{max-height:180px}#revision-detail{max-height:none}.article-history-dialog{padding:16px}}

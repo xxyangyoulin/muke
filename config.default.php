@@ -55,6 +55,9 @@ return [
     'auto_deploy' => '0',
     // 自动部署防抖（分钟）：新动态顺延计时，静默这么多分钟后才执行（后台可改，1–1440）
     'auto_deploy_debounce' => 10,
+    'backup_enabled' => '0',
+    'backup_interval_hours' => 24,
+    'backup_keep' => 7,
 
     // ---- 首次运行的默认资料（可在后台修改） ----
     'profile_bio' => '记录日常的微小瞬间，收集值得停留的风景。',

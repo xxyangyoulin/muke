@@ -3,9 +3,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/Api/Feed.php';
 require_once __DIR__ . '/Api/Content.php';
+require_once __DIR__ . '/Api/ArticleRevisions.php';
 require_once __DIR__ . '/Api/Plugins.php';
 require_once __DIR__ . '/Api/Comments.php';
 require_once __DIR__ . '/Api/System.php';
+require_once __DIR__ . '/Api/Tasks.php';
 
 /** API 分发：路由表 → 处理器（处理器自行校验并以 json_response 终结） */
 function api(PDO $db): never {
@@ -17,10 +19,12 @@ function api(PDO $db): never {
             'posts' => 'api_posts',
             'plugin-data' => 'api_plugin_data',
             'articles' => 'api_articles',
+            'article-revisions' => 'api_article_revisions',
             'plugins' => 'api_plugins',
             'comments' => 'api_comments', 'likes' => 'api_likes',
             'comments-admin' => 'api_comments_admin',
             'deploy-status' => 'api_deploy_status',
+            'tasks' => 'api_tasks',
             'backup-export' => 'api_backup_export', 'download-static' => 'api_download_static',
         ];
         if (!isset($routes[$action])) json_response(['error' => '接口不存在'], 404);
@@ -32,17 +36,19 @@ function api(PDO $db): never {
     if (!is_array($input)) $input = $_POST;
     $routes = [
         'setup' => 'api_auth', 'login' => 'api_auth', 'logout' => 'api_logout',
-        'save-post' => 'api_save_post', 'delete-post' => 'api_delete_post',
+        'save-post' => 'api_save_post', 'delete-post' => 'api_delete_post', 'pin-post' => 'api_pin_post',
         'render' => 'api_render', 'upload-image' => 'api_upload_image',
         'save-article' => 'api_save_article', 'delete-article' => 'api_delete_article',
+        'restore-article-revision' => 'api_restore_article_revision',
         'save-plugin' => 'api_save_plugin', 'remove-plugin' => 'api_remove_plugin', 'sync-plugin' => 'api_sync_plugin', 'purge-plugin-posts' => 'api_purge_plugin_posts', 'plugin-admin' => 'api_plugin_admin',
         'comment' => 'api_comment', 'like' => 'api_like', 'moderate-comment' => 'api_moderate_comment',
         'profile' => 'api_profile', 'change-password' => 'api_change_password',
         'save-avatar' => 'api_save_avatar', 'remove-avatar' => 'api_remove_avatar',
         'save-cover' => 'api_save_cover', 'remove-cover' => 'api_remove_cover',
         'save-settings' => 'api_save_settings',
+        'save-backup-settings' => 'api_save_backup_settings',
         'export' => 'api_export',
-        'netlify-save' => 'api_netlify_save', 'netlify-deploy' => 'api_netlify_deploy',
+        'netlify-save' => 'api_netlify_save', 'netlify-deploy' => 'api_netlify_deploy', 'cancel-deploy' => 'api_cancel_deploy',
         'backup-import' => 'api_backup_import',
     ];
     if (!isset($routes[$action])) json_response(['error' => '接口不存在'], 404);

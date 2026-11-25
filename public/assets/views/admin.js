@@ -1,11 +1,13 @@
 import { store } from '../lib/store.js';
 import { api, apiGet, morePosts } from '../lib/api.js';
 import { beginView, onViewLeave } from '../lib/lifecycle.js';
+import { pushHistory } from '../lib/navigation.js';
 import { icon, esc, toast, dateLabel, empty, profileName, avatar, postsByDate, updateProfile, postHTML } from '../lib/ui.js';
 import { composer, bindComposer } from '../components/composer.js';
 import { feed } from './feed.js';
 import { loadArticles, moreArticles, adminArticleRows, articleText } from './articles.js';
 import { renderArticleEditor } from './editor.js';
+import { tasksHTML, bindTasks } from './tasks.js';
 
 export function optionsFormHTML() {
  return `<form id="options-form" class="panel options-panel"><span class="eyebrow">SITE OPTIONS</span><h2>站点参数</h2><p class="small-label">保存即生效；未改动的项沿用配置文件默认值。</p>${
@@ -43,10 +45,12 @@ export function pluginFieldHTML(f) {
   return `<label>${esc(f.label)}<input name="${esc(f.key)}" type="${f.type === 'number' ? 'number' : 'text'}" value="${val}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} placeholder="${esc(f.hint || '')}"></label>`;
 }
 export function pluginCardHTML(pl) {
- return `<div class="panel plugin-card" data-plugin="${esc(pl.id)}"><div class="plugin-head"><div class="plugin-title"><h2>${esc(pl.name)}</h2><span class="small-label">已同步 ${pl.post_count} 条${pl.last_sync ? ' · 上次 ' + dateLabel(new Date(pl.last_sync * 1000)) : ''}</span></div><label class="switch-line"><input type="checkbox" class="plugin-enabled" ${pl.enabled ? 'checked' : ''}> 启用</label></div><p class="small-label plugin-desc">${esc(pl.description)}</p>${pl.last_error ? `<p class="plugin-error small-label">上次失败：${esc(pl.last_error)}</p>` : ''}<div class="plugin-actions"><button class="secondary plugin-settings" type="button">设置</button><button class="text-link plugin-sync" type="button">立即同步</button>${pl.supports_history ? `<button class="text-link plugin-sync-all" type="button">同步历史</button>` : ''}<span class="plugin-danger"><button class="text-link plugin-purge" type="button">清空动态</button><button class="text-link plugin-remove" type="button">移除插件</button></span></div></div>`;
+ const lastSync = pl.last_sync ? new Date(pl.last_sync * 1000).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'}) : '';
+ return `<div class="panel plugin-card" data-plugin="${esc(pl.id)}"><div class="plugin-head"><div class="plugin-title"><h2>${esc(pl.name)}</h2><span class="small-label">已同步 ${pl.post_count} 条${lastSync ? ' · 上次 ' + esc(lastSync) : ''}</span></div><div class="plugin-controls"><button class="secondary plugin-settings" type="button">设置</button><label class="switch-line"><input type="checkbox" class="plugin-enabled" ${pl.enabled ? 'checked' : ''}> 启用</label></div></div><p class="small-label plugin-desc">${esc(pl.description)}</p>${pl.last_error ? `<p class="plugin-error small-label">上次失败：${esc(pl.last_error)}</p>` : ''}<div class="plugin-actions"><button class="text-link plugin-sync" type="button">立即同步</button>${pl.supports_history ? `<button class="text-link plugin-sync-all" type="button">同步历史</button>` : ''}<span class="plugin-danger"><button class="text-link plugin-purge" type="button">清空动态</button><button class="text-link plugin-remove" type="button">移除插件</button></span></div></div>`;
 }
 
 export function adminSectionHTML() {
+ if (store.adminTab === 'tasks') return tasksHTML();
  if (store.adminTab === 'posts') {
   const withImages = store.posts.filter(p => (p.images || []).length).length;
   const weekAgo = Date.now() - 7 * 86400000;
@@ -99,9 +103,9 @@ export function adminSectionHTML() {
    const row = c => `<div class="comment-admin-row" data-cid="${c.id}"><div class="comment-admin-main"><strong>${esc(c.author)}</strong> <span class="small-label">评论 ${c.kind === 'article' ? '文章' : '动态'}「${esc(c.target_label)}」· ${esc(dateLabel(c.created_at))}</span>${c.status !== 'approved' ? `<em class="draft-badge">${c.status === 'pending' ? '待审' : '垃圾'}</em>` : ''}<p>${esc(c.content)}</p></div><div class="post-admin"><button class="icon-button" data-comment-spam="${c.id}" aria-label="标垃圾" title="标垃圾">${icon('trash')}</button>${c.status !== 'approved' ? `<button class="icon-button" data-comment-approve="${c.id}" aria-label="恢复显示" title="恢复显示">${icon('check')}</button>` : ''}<button class="icon-button" data-comment-delete="${c.id}" aria-label="彻底删除" title="彻底删除">${icon('close')}</button></div></div>`;
    return `<div class="panel comment-admin-panel"><div class="section-heading"><h2>评论管理</h2><span class="small-label">先发后审：标过垃圾的 IP 后续评论自动进待审</span></div><div class="comment-filters">${filters.map(([k, l]) => `<button data-comment-filter="${k}" class="${(store.commentsFilter || 'all') === k ? 'active' : ''}">${l}</button>`).join('')}</div><div class="comment-admin-list">${d.comments.length ? d.comments.map(row).join('') : empty('还没有评论', '访客评论会显示在这里。', 'chat')}</div></div>`;
   })();
-  return settingsPanel + listPanel;
+  return `<div class="top-tabs" role="group" aria-label="评论管理与设置">${[['list', '评论管理'], ['settings', '评论设置']].map(([key, label]) => `<button type="button" class="tab${store.commentsTab === key ? ' selected' : ''}" data-comments-tab="${key}" aria-pressed="${store.commentsTab === key}">${label}</button>`).join('')}</div><div data-comments-panel="list" ${store.commentsTab === 'list' ? '' : 'hidden'}>${listPanel}</div><div data-comments-panel="settings" ${store.commentsTab === 'settings' ? '' : 'hidden'}>${settingsPanel}</div>`;
  }
- if (store.adminTab === 'publish') return `<div class="settings-cols"><div class="settings-left"><div class="panel export-panel"><span class="eyebrow">STATIC EXPORT</span><h2>生成静态站点</h2><p>导出纯静态 HTML，包含已加载动态、文章及插件内容；已审评论烘焙为只读。</p><div class="dialog-actions left"><button id="export-site" class="primary">${icon('download')}生成静态站点</button><button id="download-static" class="secondary" type="button">下载站点包 (zip)</button></div><p id="export-status" class="export-status" role="status">导出目录：项目内的 dist/；下载打包最近一次生成结果</p></div></div><div><div class="panel netlify-panel"><span class="eyebrow">ONE CLICK TO NETLIFY</span><h2>一键部署</h2>${store.state.netlify?.has_token ? `<p class="small-label">已绑定站点 ${esc(store.state.netlify?.site || '')}</p>` : '<p class="small-label">先保存访问令牌和站点 ID，之后点一下即可自动导出并上传。</p>'}<button id="deploy-site" class="primary">部署到 Netlify ${icon('arrow')}</button><button id="netlify-toggle" class="text-link" type="button" aria-expanded="false">${store.state.netlify?.has_token ? '修改配置' : '配置凭据'}</button><form id="auto-deploy-form"><label class="auto-deploy-check"><input type="checkbox" name="auto_deploy" ${store.state.netlify?.auto_deploy ? 'checked' : ''}>发布新动态后自动部署（默认关闭）</label><label>防抖等待（分钟）<input name="auto_deploy_debounce" type="number" min="1" max="1440" value="${store.state.netlify?.auto_deploy_debounce ?? 10}"></label><p class="small-label">静默指定分钟无新动态才执行，期间再发动态会顺延计时；仅手动发布的动态触发。</p><button class="secondary" type="submit">保存自动部署设置</button></form><div id="netlify-form-wrap" ${store.state.netlify?.has_token ? 'hidden' : ''}><form id="netlify-form"><label>访问令牌<input name="token" type="password" autocomplete="off" placeholder="${store.state.netlify?.has_token ? '已保存，留空则保持不变' : 'Netlify Access Token'}"></label><label>站点 ID<input name="site" value="${esc(store.state.netlify?.site || '')}" placeholder="例如 my-site-1234 或站点 UUID"></label><button class="secondary" type="submit">保存设置</button></form></div><p id="netlify-status" class="export-status" role="status">${store.state.netlify?.has_token ? '点击上方按钮：后台任务自动导出并上传，可离开页面。' : ''}</p><div id="deploy-progress" class="deploy-bar" hidden><i></i></div></div></div></div>`;
+ if (store.adminTab === 'publish') return `<div class="settings-cols"><div class="settings-left"><div class="panel export-panel"><span class="eyebrow">STATIC EXPORT</span><h2>生成静态站点</h2><p>导出纯静态 HTML，包含已加载动态、文章及插件内容；已审评论烘焙为只读。</p><div class="dialog-actions left"><button id="export-site" class="primary">${icon('download')}生成静态站点</button><button id="download-static" class="secondary" type="button">下载站点包 (zip)</button></div><p id="export-status" class="export-status" role="status">导出目录：项目内的 dist/；下载打包最近一次生成结果</p></div></div><div><div class="panel netlify-panel"><span class="eyebrow">ONE CLICK TO NETLIFY</span><h2>一键部署</h2>${store.state.netlify?.has_token ? `<p class="small-label">已绑定站点 ${esc(store.state.netlify?.site || '')}</p>` : '<p class="small-label">先保存访问令牌和站点 ID，之后点一下即可自动导出并上传。</p>'}<button id="deploy-site" class="primary">部署到 Netlify ${icon('arrow')}</button><button id="cancel-deploy" class="secondary" type="button" hidden>取消部署</button><button id="netlify-toggle" class="text-link" type="button" aria-expanded="false">${store.state.netlify?.has_token ? '修改配置' : '配置凭据'}</button><form id="auto-deploy-form"><label class="auto-deploy-check"><input type="checkbox" name="auto_deploy" ${store.state.netlify?.auto_deploy ? 'checked' : ''}>发布新动态后自动部署（默认关闭）</label><label>防抖等待（分钟）<input name="auto_deploy_debounce" type="number" min="1" max="1440" value="${store.state.netlify?.auto_deploy_debounce ?? 10}"></label><p class="small-label">静默指定分钟无新动态才执行，期间再发动态会顺延计时；仅手动发布的动态触发。</p><button class="secondary" type="submit">保存自动部署设置</button></form><div id="netlify-form-wrap" ${store.state.netlify?.has_token ? 'hidden' : ''}><form id="netlify-form"><label>访问令牌<input name="token" type="password" autocomplete="off" placeholder="${store.state.netlify?.has_token ? '已保存，留空则保持不变' : 'Netlify Access Token'}"></label><label>站点 ID<input name="site" value="${esc(store.state.netlify?.site || '')}" placeholder="例如 my-site-1234 或站点 UUID"></label><button class="secondary" type="submit">保存设置</button></form></div><p id="netlify-status" class="export-status" role="status">${store.state.netlify?.has_token ? '点击上方按钮：后台任务自动导出并上传，可离开页面。' : ''}</p><div id="deploy-progress" class="deploy-bar" hidden><i></i></div></div></div></div>`;
  if (store.adminTab === 'options') return optionsFormHTML();
  if (store.adminTab === 'plugins') {
   const cards = (store.pluginsAdmin || []).filter(pl => !pl.removed);
@@ -125,13 +129,13 @@ export function admin() {
  }
  if (store.editingArticle !== false) { renderArticleEditor(); return; }
  if (!store.articlesLoaded) loadArticles().then(() => { if (store.page === 'admin' && store.editingArticle === false) admin(); }).catch(() => {});
- const tabs = [['overview', '概览'], ['posts', '动态'], ['articles', '文章'], ['plugins', '插件'], ['comments', '评论'], ['options', '参数'], ['settings', '设置'], ['publish', '发布']];
+ const tabs = [['overview', '概览'], ['posts', '动态'], ['articles', '文章'], ['plugins', '插件'], ['comments', '评论'], ['tasks', '任务'], ['options', '参数'], ['settings', '设置'], ['publish', '发布']];
  const urlTab = new URLSearchParams(location.search).get('tab');
  if (urlTab && tabs.some(([key]) => key === urlTab)) store.adminTab = urlTab; // 刷新/直达时按 URL 恢复页签
  store.main.innerHTML = `<div class="admin-page">
  <div class="top-tabs admin-tabs">${tabs.map(([key, label]) => `<button class="tab${store.adminTab === key ? ' selected' : ''}" data-admin-tab="${key}" type="button">${label}</button>`).join('')}<span class="admin-exit"><button id="logout" class="text-link" type="button">退出登录</button></span></div>
  <div id="admin-body">${adminSectionHTML()}</div></div>`;
- document.querySelectorAll('[data-admin-tab]').forEach(button => button.onclick = () => { store.adminTab = button.dataset.adminTab; history.pushState({}, '', '/admin?tab=' + store.adminTab); admin(); });
+ document.querySelectorAll('[data-admin-tab]').forEach(button => button.onclick = () => { store.adminTab = button.dataset.adminTab; pushHistory('/admin?tab=' + store.adminTab); admin(); });
  bindAdminSection();
 }
 
@@ -153,6 +157,8 @@ export function pollDeploy(started) {
   const s2 = document.querySelector('#netlify-status');
   if (!s2) return; // 不在发布页签：轮询保持，切回来自动恢复渲染
   const st = d?.status, pd = d?.pending;
+  const cancel = document.querySelector('#cancel-deploy');
+  if (cancel) { cancel.hidden = !['exporting', 'uploading', 'waiting'].includes(st?.state); cancel.disabled = !!d?.cancelling; cancel.textContent = d?.cancelling ? '正在取消…' : '取消部署'; }
   const bar = document.querySelector('#deploy-progress'), btn = document.querySelector('#deploy-site');
   if (!st || !['exporting','uploading','waiting'].includes(st.state)) {
    if (deployStarting) return; // 启动请求在途：旧终态（上次 done/error）不渲染、不停轮询，等新占位落盘再显示
@@ -160,6 +166,7 @@ export function pollDeploy(started) {
    if (btn) btn.disabled = false;
    let html;
    if (st?.state === 'done') { html = `部署完成：<a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.url)}</a>`; if (deployToast) toast('已部署到 Netlify'); }
+   else if (st?.state === 'cancelled') html = '部署已取消' + (st.error ? '：' + esc(st.error) : '');
    else if (st?.state === 'error') html = '部署失败：' + esc(st.error || '未知错误');
    else html = esc(store.state.netlify?.has_token ? '点击上方按钮：后台任务自动导出并上传，可离开页面。' : '先保存访问令牌和站点 ID，之后点一下即可自动导出并上传。');
    if (pd) html += ` · 自动部署约 ${Math.max(1, Math.ceil(pd.in / 60))} 分钟后执行（新动态顺延）`;
@@ -181,6 +188,7 @@ export function pollDeploy(started) {
 }
 
 export function bindAdminSection() {
+ if (store.adminTab === 'tasks') bindTasks();
  if (store.adminTab === 'articles') {
   const panel = document.querySelector('.posts-panel');
   for (const [draft, next, label] of [[false, store.articlesNext, '文章'], [true, store.draftsNext, '草稿']]) {
@@ -206,7 +214,7 @@ export function bindAdminSection() {
  }
  bindComposer();
  document.querySelector('#logout').onclick = async () => {try{await api('logout',{});store.state=await api('state'); await loadArticles(true);admin();}catch(e){toast(e.message);}};
- document.querySelectorAll('[data-admin-tab-jump]').forEach(button => button.onclick = () => { store.adminTab = button.dataset.adminTabJump; history.pushState({}, '', '/admin?tab=' + store.adminTab); admin(); });
+ document.querySelectorAll('[data-admin-tab-jump]').forEach(button => button.onclick = () => { store.adminTab = button.dataset.adminTabJump; pushHistory('/admin?tab=' + store.adminTab); admin(); });
  const goNew = document.querySelector('#go-new-article');
  if (goNew) goNew.onclick = () => { store.editingArticle = 'new'; store.editorFormat = 'md'; admin(); };
  const newBtns = document.querySelectorAll('[data-new-article],#new-article');
@@ -240,6 +248,15 @@ export function bindAdminSection() {
  };
  if (store.adminTab === 'plugins' && store.pluginsAdmin === null) { loadPlugins().then(() => admin()); return; }
  if (store.adminTab === 'comments' && !store.commentsData) { loadCommentsAdmin().then(() => admin()).catch(() => admin()); return; }
+ document.querySelectorAll('[data-comments-tab]').forEach(button => button.onclick = () => {
+  store.commentsTab = button.dataset.commentsTab;
+  document.querySelectorAll('[data-comments-tab]').forEach(tab => {
+   const selected = tab.dataset.commentsTab === store.commentsTab;
+   tab.classList.toggle('selected', selected);
+   tab.setAttribute('aria-pressed', String(selected));
+  });
+  document.querySelectorAll('[data-comments-panel]').forEach(panel => { panel.hidden = panel.dataset.commentsPanel !== store.commentsTab; });
+ });
  document.querySelectorAll('[data-comment-filter]').forEach(b => b.onclick = () => { store.commentsFilter = b.dataset.commentFilter; loadCommentsAdmin(store.commentsFilter).then(() => admin()); });
  document.querySelectorAll('[data-comment-spam],[data-comment-approve],[data-comment-delete]').forEach(b => b.onclick = async () => {
   const op = b.dataset.commentSpam ? 'spam' : b.dataset.commentApprove ? 'approve' : 'delete';
@@ -419,6 +436,12 @@ export function bindAdminSection() {
   netlifyToggle.setAttribute('aria-expanded', String(!wrap.hidden));
  };
  if (dlBtn) dlBtn.onclick = () => { window.location = '/api?action=download-static'; };
+ const cancelDeploy = document.querySelector('#cancel-deploy');
+ if (cancelDeploy) cancelDeploy.onclick = async () => {
+  cancelDeploy.disabled = true;
+  try { await api('cancel-deploy', {}); cancelDeploy.textContent = '正在取消…'; pollDeploy(false); }
+  catch (error) { toast(error.message); cancelDeploy.disabled = false; }
+ };
  if (deployBtn) deployBtn.onclick = async e => {const b=e.currentTarget;b.disabled=true;const s2=document.querySelector('#netlify-status');s2.textContent='正在启动后台部署任务…';pollDeploy(true);try{await api('netlify-deploy',{});deployStarting=false;}catch(error){stopDeployPoll();s2.textContent=error.message;b.disabled=false;}};
  if (deployBtn) pollDeploy();
 }

@@ -25,6 +25,7 @@ export const store = {
  adminTab: 'overview',
  pluginsAdmin: null,
  commentsData: null,
+ commentsTab: 'list',
  commentsFilter: 'all',
  pendingPluginRemove: null,
  feedShown: 15,

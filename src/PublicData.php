@@ -11,6 +11,15 @@ function public_options(): array {
     return $options;
 }
 
-function public_plugins(): array {
-    return array_map(fn($plugin) => array_filter(['name' => $plugin['name'] ?? $plugin['id'], 'full_images' => !empty($plugin['post_images_full']), 'color' => plugin_badge_color($plugin)]), plugin_list());
+/** 公开插件清单：来源徽章渲染所需；传入 $db 时附带「已启用」插件的页面声明（首页 tab / 前端路由用） */
+function public_plugins(?PDO $db = null): array {
+    $plugins = [];
+    foreach (plugin_list() as $id => $plugin) {
+        $entry = array_filter(['name' => $plugin['name'] ?? $plugin['id'], 'full_images' => !empty($plugin['post_images_full']), 'color' => plugin_badge_color($plugin)]);
+        if ($db !== null && !empty($plugin['page']) && is_array($plugin['page']) && !empty(plugin_config($db, $id)['_enabled'])) {
+            $entry['page'] = array_filter(['route' => $plugin['page']['route'] ?? null, 'title' => $plugin['page']['title'] ?? $id, 'tab' => !empty($plugin['page']['tab'])]);
+        }
+        $plugins[$id] = $entry;
+    }
+    return $plugins;
 }

@@ -7,7 +7,8 @@ if (!is_dir($dataDir)) mkdir($dataDir);
 define('DATA_DIR', $dataDir);
 require $sandbox . '/src/Netlify.php';
 
-function export_site(PDO $db): array {
+function export_site(PDO $db, ?callable $checkCancelled = null): array {
+    if ($checkCancelled) $checkCancelled();
     file_put_contents(DATA_DIR . '/entered', '1');
     $deadline = microtime(true) + 10;
     while (!is_file(DATA_DIR . '/release') && microtime(true) < $deadline) usleep(20000);
@@ -54,6 +55,17 @@ check(!netlify_deploy_running(), '部署失败后未释放锁');
 check(auto_deploy_pending_read() === $latest, '部署结束删除了期间新增的待办');
 check(!netlify_deploy_run($db, $latest), '失败部署应返回 false');
 check(auto_deploy_pending_read() === [], '已处理的失败待办应清除而非无限重试');
+netlify_status_write(['state' => 'exporting', 'deploy_id' => '']);
+file_put_contents(DATA_DIR . '/deploy.cancel', '1');
+check(!netlify_deploy_run($db), '取消的部署应返回 false');
+check(netlify_status_read()['state'] === 'cancelled', '取消状态未保存');
+check(!netlify_deploy_running(), '取消后未释放部署锁');
+try {
+    netlify_request('test', 'GET', 'http://127.0.0.1:1');
+    check(false, '取消后仍执行网络请求');
+} catch (DeployCancelled) {}
+check(!netlify_deploy_run($db, $latest), '新任务的注入失败未生效');
+check(netlify_status_read()['state'] === 'error', '旧取消标记影响了新任务');
 @unlink(DATA_DIR . '/deploy.watcher.pid');
 $lock = fopen($dataDir . '/deploy.lock', 'c');
 check(flock($lock, LOCK_EX | LOCK_NB), '锁无法重新获取');

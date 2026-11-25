@@ -4,6 +4,8 @@ import { icon, esc, toast, header } from '../lib/ui.js';
 import { loadArticles } from './articles.js';
 import { admin } from './admin.js';
 import { initTagInput } from '../components/taginput.js';
+import { bindArticleHistory } from '../components/article-history.js';
+import { bindEditorProtection, confirmEditorLeave, readArticleDraft } from '../components/editor-protection.js';
 
 export function editorContent() { return document.querySelector('#article-content'); }
 
@@ -46,7 +48,7 @@ export function editorToolbarHTML(format) {
 
 export function renderArticleEditor() {
  const article = store.editingArticle === 'new' ? null : store.editingArticle;
- const format = article ? article.format : store.editorFormat;
+ const format = article ? article.format : readArticleDraft()?.format || store.editorFormat;
  document.title = (article ? '编辑文章' : '写新文章') + ' · ' + store.baseTitle.split(' · ')[0];
  store.main.innerHTML = header('文章随笔', article ? '修改这篇文章' : '新的一篇', '<button id="editor-back" class="text-link" type="button">返回后台</button>') + `<div class="editor-page"><input id="article-title" placeholder="给这篇文章起个标题" maxlength="80" value="${article ? esc(article.title) : ''}"><div class="tag-box" id="tag-box"><div class="tag-chips" id="tag-chips"></div><input id="tag-field" autocomplete="off" maxlength="20"><div class="tag-suggest" id="tag-suggest" hidden></div><input type="hidden" id="article-tags" value="${article ? esc(article.tags || '') : ''}"></div><div class="format-tabs">${article ? `<span class="format-locked">${format === 'md' ? 'Markdown 模式（创建后不可切换）' : '富文本模式（创建后不可切换）'}</span>` : `<button type="button" data-format="md" class="${format === 'md' ? 'active' : ''}">Markdown</button><button type="button" data-format="html" class="${format === 'html' ? 'active' : ''}">富文本</button>`}</div><div class="editor-toolbar" id="editor-toolbar">${editorToolbarHTML(format)}</div>${format === 'html' ? `<div class="rt-editor" id="article-content" contenteditable="true">${article ? article.content : ''}</div>` : `<textarea id="article-content" placeholder="支持 Markdown：# 标题 / **加粗** / *斜体* / - 列表 / > 引用 / \`行内代码\` / ![](图片) / \`\`\`代码块\`\`\`">${article ? esc(article.content) : ''}</textarea>`}<div class="editor-bottom"><span id="editor-count" class="small-label"></span><div class="dialog-actions">${article ? `<button class="danger" id="article-delete" type="button">删除文章</button>` : ''}<button class="secondary" id="preview-toggle" type="button">预览</button><button class="secondary" id="article-draft" type="button">存草稿</button><button class="primary" id="article-save" type="button">${article && article.draft ? '发布' : article ? '保存更新' : '发布'} ${icon('arrow')}</button></div></div><div class="editor-preview" id="editor-preview" hidden><div class="section-heading"><h3>实时预览</h3><span class="small-label">由服务端渲染，与线上一致</span></div><div class="article-content" id="preview-body"></div></div><input type="file" id="editor-image-input" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden></div>`;
  bindArticleEditor(format, article);
@@ -93,15 +95,29 @@ export let previewTimer;
 
 export function bindArticleEditor(format, article = null) {
  updateEditorCount();
+ let protection;
+ if (article) {
+  document.querySelector('.editor-bottom .dialog-actions').insertAdjacentHTML('afterbegin', '<button class="secondary" id="article-history" type="button">修订历史</button>');
+  bindArticleHistory(article, () => ({title:document.querySelector('#article-title').value, content:getEditorValue(), tags:document.querySelector('#article-tags').value, draft:article.draft, format}), async restored => {
+   const editor = document.querySelector('.editor-page');
+   protection.saved();
+   store.editingArticle = restored;
+   await loadArticles(true);
+   if (!editor.isConnected) return;
+   admin();
+   toast('已恢复历史版本，恢复前的内容已保留');
+  });
+ }
  const tagPool = [...(store.articles || []), ...(store.articlesDrafts || [])].flatMap(a => (a.tags || '').split(',')).map(t => t.trim()).filter(Boolean);
- initTagInput({ initial: article?.tags || '', pool: tagPool });
- document.querySelector('#editor-back').onclick = () => { store.editingArticle = false; admin(); };
+ const setTags = initTagInput({ initial: article?.tags || '', pool: tagPool });
+ document.querySelector('#editor-back').onclick = () => { if (!confirmEditorLeave()) return; store.editingArticle = false; admin(); };
  document.querySelectorAll('.format-tabs [data-format]').forEach(button => button.onclick = () => {
   const next = button.dataset.format;
   if (next === format) return;
-  if (getEditorValue().trim() !== '' && !confirm('切换编辑模式会清空当前内容，确定吗？')) return;
+  if ((titleInput.value || getEditorValue().trim() || tagsInput.value || tagField.value) && !confirm('切换编辑模式会清空当前标题、正文、标签和本地暂存，确定吗？')) return;
+  protection.saved();
   store.editorFormat = next;
-  renderArticleEditor();
+  admin();
  });
  const content = editorContent();
  content?.addEventListener('input', () => { updateEditorCount(); if (!document.querySelector('#editor-preview').hidden) renderEditorPreview(format); });
@@ -129,6 +145,7 @@ export function bindArticleEditor(format, article = null) {
    document.execCommand('insertHTML', false, `<code>${esc(sel)}</code>&nbsp;`);
   } else if (button.dataset.image) imageInput.click();
   updateEditorCount();
+  content.dispatchEvent(new Event('input', {bubbles:true}));
   if (!document.querySelector('#editor-preview').hidden) renderEditorPreview(format);
  });
  imageInput.onchange = async () => {
@@ -139,10 +156,12 @@ export function bindArticleEditor(format, article = null) {
   toast('正在上传图片…');
   try {
    const url = await uploadEditorImage(file);
+   if (!content.isConnected) return;
    content?.focus();
    const ratio = document.querySelector('#img-width')?.value || '100';
    if (format === 'html') document.execCommand('insertHTML', false, `<img src="${esc(url)}" alt=""${ratio !== '100' ? ` width="${ratio}%"` : ''}><br>`);
    else mdInsert(content, ratio === '100' ? `\n![](${url})\n` : `\n<img src="${url}" width="${ratio}%">\n`);
+   content.dispatchEvent(new Event('input', {bubbles:true}));
    if (!document.querySelector('#editor-preview').hidden) renderEditorPreview(format);
   } catch (error) { toast(error.message); }
  };
@@ -160,13 +179,18 @@ export function bindArticleEditor(format, article = null) {
   if (value.trim() === '') { toast('正文还空着呢'); return; }
   if (format === 'html' && content) sanitizeRichText(content);
   button.disabled = true;
+  const editor = document.querySelector('.editor-page');
+  editor.inert = true;
   try {
    await api('save-article', {id: article2Id(), title, content: format === 'html' ? content.innerHTML : value, format, tags, draft: draft ? 1 : 0});
+   protection.saved();
+   if (!content.isConnected) return;
    await loadArticles(true);
+   if (!content.isConnected) return;
    store.editingArticle = false;
    admin();
    toast(draft ? '草稿已保存' : '文章已发布');
-  } catch (error) { toast(error.message); } finally { button.disabled = false; }
+  } catch (error) { toast(error.message); } finally { button.disabled = false; editor.inert = false; }
  };
  document.querySelector('#article-save').onclick = async e => persist(false, e.currentTarget);
  document.querySelector('#article-draft').onclick = async e => persist(true, e.currentTarget);
@@ -175,8 +199,21 @@ export function bindArticleEditor(format, article = null) {
   store.pendingArticleDelete = article2Id();
   const dialog = document.querySelector('#delete-dialog');
   dialog.querySelector('h2').textContent = '删除这篇文章？';
-  dialog.querySelector('p').textContent = '删除后无法恢复，文章里的图片也会一并清理。';
+  dialog.querySelector('p').textContent = '删除后无法恢复，修订历史及不再使用的图片也会一并清理。';
   dialog.showModal();
  };
  function article2Id() { return store.editingArticle === 'new' ? null : store.editingArticle.id; }
+ const titleInput = document.querySelector('#article-title'), tagsInput = document.querySelector('#article-tags'), tagField = document.querySelector('#tag-field');
+ protection = bindEditorProtection(article?.id, () => ({title:titleInput.value, content:content.tagName === 'TEXTAREA' ? content.value : content.innerHTML, tags:tagsInput.value, pendingTag:tagField.value, format}), draft => {
+  titleInput.value = draft.title;
+  if (format === 'html') {
+   const template = document.createElement('template');
+   template.innerHTML = draft.content;
+   sanitizeRichText(template.content);
+   content.innerHTML = template.innerHTML;
+  } else content.value = draft.content;
+  setTags(draft.tags);
+  tagField.value = draft.pendingTag;
+  updateEditorCount();
+ });
 }

@@ -16,10 +16,35 @@ const { openPage, ok, results } = require('./cdp.cjs');
   await new Promise(r => setTimeout(r, 1400));
   ok('后台登录', await p.evalJs(`!!document.querySelector('[data-admin-tab]')`));
   // 各页签渲染
-  for (const tab of ['overview', 'posts', 'articles', 'plugins', 'options', 'settings', 'publish']) {
+  for (const tab of ['overview', 'posts', 'articles', 'plugins', 'comments', 'options', 'settings', 'publish']) {
    await p.evalJs(`[...document.querySelectorAll('[data-admin-tab]')].find(b=>b.dataset.adminTab==='${tab}').click()`);
    await new Promise(r => setTimeout(r, 500));
    ok(`页签渲染 ${tab}`, await p.evalJs(`!!document.querySelector('#admin-body')`));
+   if (tab === 'comments') {
+    ok('评论默认显示管理列表', await p.evalJs(`!document.querySelector('[data-comments-panel="list"]').hidden && document.querySelector('[data-comments-panel="settings"]').hidden`));
+    await p.evalJs(`document.querySelector('[data-comments-tab="settings"]').click()`);
+    ok('可切换到评论设置', await p.evalJs(`document.querySelector('[data-comments-panel="list"]').hidden && !document.querySelector('[data-comments-panel="settings"]').hidden && typeof document.querySelector('#comment-provider-form').onsubmit === 'function'`));
+    await p.evalJs(`document.querySelector('#comment-provider-form input[name=smtp_host]').value = 'unsaved.example.com'; document.querySelector('[data-comments-tab="list"]').click(); document.querySelector('[data-comments-tab="settings"]').click()`);
+    ok('切换评论页签保留未保存输入', await p.evalJs(`document.querySelector('#comment-provider-form input[name=smtp_host]').value === 'unsaved.example.com'`));
+    await p.evalJs(`document.querySelector('[data-comments-tab="list"]').click()`);
+    ok('可切回评论管理', await p.evalJs(`!document.querySelector('[data-comments-panel="list"]').hidden && document.querySelector('[data-comments-tab="list"]').getAttribute('aria-pressed') === 'true'`));
+   }
+   if (tab === 'plugins') {
+    ok('插件设置位于启用左侧', await p.evalJs(`Array.from(document.querySelectorAll('.plugin-card')).every(card => {
+     const button = card.querySelector('.plugin-head .plugin-settings');
+     const toggle = card.querySelector('.plugin-enabled');
+     return button && button.getBoundingClientRect().right <= toggle.getBoundingClientRect().left && !card.querySelector('.plugin-actions .plugin-settings');
+    })`));
+    await p.evalJs(`document.querySelector('.plugin-settings').click()`);
+    ok('插件设置弹窗可打开', await p.evalJs(`document.querySelector('#plugin-settings-dialog').open`));
+    await p.evalJs(`document.querySelector('#plugin-settings-dialog').close()`);
+    ok('插件同步显示完整时间', await p.evalJs(`(async () => {
+     const {pluginCardHTML} = await import('/assets/views/admin.js');
+     const plugin = {id:'test', name:'test', description:'', post_count:1};
+     const html = pluginCardHTML({...plugin, last_sync:new Date(2026,10,25,0,5,9).getTime()/1000});
+     return html.includes('上次 2026/11/25 00:05:09') && !pluginCardHTML({...plugin, last_sync:0}).includes(' · 上次 ');
+    })()`));
+   }
    if (tab === 'articles') {
     await p.evalJs(`document.querySelector('[data-edit-article]').click()`);
     await new Promise(r => setTimeout(r, 500));

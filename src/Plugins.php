@@ -36,6 +36,26 @@ function plugin_badge_color(array $plugin): ?string {
     return preg_match('/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $color) ? strtolower($color) : null;
 }
 
+/** 声明了 timeline_field 且当前关闭的「已启用」插件来源：其动态整体退出首页时间线与站点 RSS。
+ *  停用插件的动态回到普通时间线（与 weibo/douban 行为一致）；插件自己的页面 / 数据端点不受影响。 */
+function plugin_feed_hidden_sources(PDO $db): array {
+    $hidden = [];
+    foreach (plugin_list() as $id => $plugin) {
+        if (empty($plugin['timeline_field'])) continue;
+        $config = plugin_config($db, $id);
+        if (empty($config['_enabled'])) continue;
+        if (!filter_var((string)($config[$plugin['timeline_field']] ?? '0'), FILTER_VALIDATE_BOOLEAN)) $hidden[] = $id;
+    }
+    return $hidden;
+}
+
+/** 时间线查询的 source 过滤片段（表别名 p；无可隐藏来源时返回空串，原查询计划不变） */
+function feed_source_filter(PDO $db): string {
+    $hidden = plugin_feed_hidden_sources($db);
+    if (!$hidden) return '';
+    return ' AND p.source NOT IN (' . implode(',', array_map(fn($s) => $db->quote($s), $hidden)) . ')';
+}
+
 function plugin_setting_key(array $plugin, string $field): string {
     return $plugin['setting_keys'][$field] ?? ('plugin:' . $plugin['id'] . ':' . $field);
 }

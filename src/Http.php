@@ -58,7 +58,7 @@ function http_fetch(string $url, int $timeout = 20, array $headers = [], bool $a
                 $url = $next;
                 continue;
             }
-            if ($status >= 400) throw new RuntimeException("远程请求失败（HTTP $status）");
+            if ($status >= 400) throw new RuntimeException('远程请求失败（HTTP ' . $status . '）'); // 勿用 "$status）" 插值：全角括号首字节会被变量名解析吞掉
             return (string)$body;
         } finally { curl_close($ch); }
     }

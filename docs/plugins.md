@@ -49,8 +49,10 @@ return [
 | 声明 | 能力 |
 | --- | --- |
 | 条目 `meta.card` + `plugin.js` 的 `MKBLOG.registerCard(样式名, fn)` + `render_post($post)` | 自定义动态卡片（无 JS 时用 `render_post` 烘焙静态版）|
+| 条目 `meta.avatar`（图片引用）+ `meta.name` / `meta.handle` | 动态头部换成来源身份（favicon 头像 + 名称 + @域名），核心在 api_posts / plugin-data / 静态导出统一把引用解析为描述符；如 RSS 订阅显示订阅站点的 favicon |
 | `tables` 闭包 + `schema_version` | 自带建表 / 数据迁移；版本默认 1，仅版本增加时在事务中执行，需支持从旧表升级 |
 | `page` 声明 + `plugin.js` 的 `MKBLOG.registerPage(路由, {render})` | 拥有整页路由；`page.description` 提供静态页 SEO 摘要，核心不识别具体插件路由 |
+| `page.tab => true`（配合 `page`） | 页面进入首页 / 文章页顶部标签栏（`state.plugins[id].page` 对外提供 route / title；不声明则只在侧栏导航 `page.nav` 出现） |
 | `data` 闭包 | 公开数据端点 `GET /api?action=plugin-data&id=<id>` |
 | `ref_protocols` + `resolve_ref` 闭包 | 声明独占协议名列表，再解析图片引用（如 `['wall']` 对应 `wall:<id>`）；协议与页面路由冲突会拒绝加载 |
 | `backup_paths` 闭包 | 返回「目录配置键 → 本地目录」；完整 ZIP 备份包含这些资源，恢复时重定位对应配置 |
@@ -63,9 +65,10 @@ return [
 | `hooks` => ['post.saved' => fn, …] | 事件总线：post.saved / post.deleted / article.saved / article.deleted / comment.created / comment.moderated |
 | `post_images_full` => true | 插件动态的图片保持原始尺寸（不套单图紧凑样式）|
 | `supports_history` => true | 卡片出现「同步历史」按钮（`sync` 收到 `options['all']`）|
+| `timeline_field` => '配置键' | 该配置关闭时（插件启用中），本插件的动态整体退出首页时间线与站点 RSS，只在插件自己的页面展示；停用后回到普通时间线 |
 
 停用后不运行同步、事件订阅和管理操作，不提供插件页面及数据端点；历史动态的图片引用解析与图片服务保留。没有历史动态的停用插件不执行导出。`tables` 为数据库初始化，`on_config_change` 为管理员配置操作，不属于运行时事件。移除插件会清除配置，外部目录等依赖需另行备份，不能视为仅停用。
 
-参考实现：`plugins/wallpapers/` 演示页面、上传、媒体引用和静态导出；`plugins/douban/`、`plugins/weibo/` 演示动态卡片与内容同步。插件是受信任的 PHP/JS 代码，不是权限隔离沙箱。
+参考实现：`plugins/wallpapers/` 演示页面、上传、媒体引用和静态导出；`plugins/douban/`、`plugins/weibo/` 演示动态卡片与内容同步；`plugins/rss/` 演示多订阅源管理（自有表 + admin_op + 数据端点）、首页标签页与 `timeline_field` 时间线开关。插件是受信任的 PHP/JS 代码，不是权限隔离沙箱。
 
 架构细节（数据流、请求流、导出管线）见 [ARCHITECTURE.md](../ARCHITECTURE.md)。

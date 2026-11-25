@@ -13,7 +13,7 @@ export function initTagInput({ initial = '', pool = [] } = {}) {
  if (!box || !field || !hidden) return;
  let chips = initial.split(',').map(t => t.trim()).filter(Boolean).slice(0, MAX_TAGS);
 
- const sync = () => { hidden.value = chips.join(','); };
+ const sync = () => { hidden.value = chips.join(','); hidden.dispatchEvent(new Event('input', {bubbles:true})); };
  const render = () => {
   chipsEl.innerHTML = chips.map((t, i) => `<span class="tag-chip">#${esc(t)}<button type="button" data-tag-remove="${i}" aria-label="移除标签 ${esc(t)}">×</button></span>`).join('');
   field.placeholder = chips.length ? '继续输入，回车添加' : '输入标签后回车（可选历史标签，最多 5 个）';
@@ -60,4 +60,5 @@ export function initTagInput({ initial = '', pool = [] } = {}) {
  });
 
  render();
+ return value => { chips = value.split(',').map(t => t.trim()).filter(Boolean).slice(0, MAX_TAGS); render(); };
 }

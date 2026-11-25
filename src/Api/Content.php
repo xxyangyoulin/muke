@@ -51,6 +51,16 @@ function api_save_post(PDO $db, array $input, string $action, bool $admin): neve
     }
 }
 
+function api_pin_post(PDO $db, array $input, string $action, bool $admin): never {
+    $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$id || !in_array($input['pinned'] ?? null, [0, 1], true)) json_response(['error' => '置顶参数无效'], 422);
+    $stmt = $db->prepare('UPDATE posts SET pinned = ? WHERE id = ?');
+    $stmt->execute([$input['pinned'], $id]);
+    if (!$stmt->rowCount()) json_response(['error' => '动态不存在'], 404);
+    auto_deploy_touch($db);
+    json_response(['ok' => true]);
+}
+
 function api_delete_post(PDO $db, array $input, string $action, bool $admin): never {
     $id = (int)($input['id'] ?? 0);
     $stmt = $db->prepare('SELECT images, source, source_key FROM posts WHERE id = ?');
@@ -104,18 +114,20 @@ function api_save_article(PDO $db, array $input, string $action, bool $admin): n
     if (mb_strlen($title) < 1 || mb_strlen($title) > 80) json_response(['error' => '标题需 1–80 字'], 422);
     if (trim($content) === '' || strlen($content) > (int)opt('article_max_bytes')) json_response(['error' => '正文不能为空，且不超过大小上限'], 422);
     $refs = article_image_refs($content);
+    $db->beginTransaction();
+    try {
+    $db->exec('UPDATE articles SET id = id WHERE 0');
     $existing = null;
     if (!empty($input['id'])) {
         $stmt = $db->prepare('SELECT * FROM articles WHERE id = ?');
         $stmt->execute([(int)$input['id']]);
         $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$existing) json_response(['error' => '文章已不存在'], 404);
+        if (!$existing) { $db->rollBack(); json_response(['error' => '文章已不存在'], 404); }
         $format = $existing['format']; // 编辑沿用创建时的格式，避免互相转换失真
     }
     $encoded = json_encode($refs);
     if ($existing) {
-        $stmt = $db->prepare('UPDATE articles SET title = ?, content = ?, tags = ?, draft = ?, images = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute([$title, $content, $tags, $draft, $encoded, date(DATE_ATOM), $existing['id']]);
+        update_article_with_revision($db, $existing, ['title' => $title, 'content' => $content, 'format' => $format, 'tags' => $tags, 'draft' => $draft, 'images' => $encoded]);
     } else {
         $now = date(DATE_ATOM);
         $aid = null; // 占位：下面 insert 后取 lastInsertId
@@ -123,23 +135,27 @@ function api_save_article(PDO $db, array $input, string $action, bool $admin): n
         $stmt->execute([$title, $content, $format, $tags, $draft, $encoded, $now, $now]);
         $aid = (int)$db->lastInsertId();
     }
-    if ($existing) foreach (array_diff(json_decode($existing['images'], true) ?: [], $refs) as $removed) delete_image_file('up:' . $removed);
+    $db->commit();
+    } catch (Throwable $e) { $db->rollBack(); throw $e; }
     plugin_fire('article.saved', ['id' => $aid ?? (int)$existing['id'], 'title' => $title, 'draft' => $draft]);
     json_response(['ok' => true]);
 }
 
 function api_delete_article(PDO $db, array $input, string $action, bool $admin): never {
     $id = (int)($input['id'] ?? 0);
-    $stmt = $db->prepare('SELECT images FROM articles WHERE id = ?');
-    $stmt->execute([$id]);
-    $refs = $stmt->fetchColumn();
     $db->beginTransaction();
     try {
+    $db->exec('UPDATE articles SET id = id WHERE 0');
+    $stmt = $db->prepare('SELECT images FROM articles WHERE id = ? UNION ALL SELECT images FROM article_revisions WHERE article_id = ?');
+    $stmt->execute([$id, $id]);
+    $refs = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $images) $refs = array_merge($refs, json_decode($images, true) ?: []);
+    $db->prepare('DELETE FROM article_revisions WHERE article_id = ?')->execute([$id]);
     $db->prepare('DELETE FROM articles WHERE id = ?')->execute([$id]);
     $db->prepare("DELETE FROM comments WHERE kind = 'article' AND target_id = ?")->execute([$id]);
     $db->commit();
     } catch (Throwable $e) { $db->rollBack(); throw $e; }
-    if ($refs) foreach (json_decode($refs, true) ?: [] as $name) delete_image_file('up:' . $name);
+    foreach (array_unique($refs) as $name) delete_image_file('up:' . $name);
     plugin_fire('article.deleted', ['id' => $id]);
     json_response(['ok' => true]);
 }

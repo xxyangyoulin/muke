@@ -1,13 +1,14 @@
 import { store } from '../lib/store.js';
 import { api, apiGet, embeddedJson } from '../lib/api.js';
 import { icon, esc, o, dateLabel, empty, avatar, profileName, verifiedBadge, toast } from '../lib/ui.js';
-import { feed, articleTeaserHTML } from './feed.js';
+import { feed, articleTeaserHTML, topTabsHTML } from './feed.js';
 import { admin } from './admin.js';
 import { mountComments } from '../components/comments.js';
 import { beginView, currentView } from '../lib/lifecycle.js';
+import { pushHistory } from '../lib/navigation.js';
 
-// 文章相关页面共用顶栏 tabs（与首页同款，文章侧选中）
-const TABS = `<div class="top-tabs"><a class="tab" href="/">日常动态</a><a class="tab selected" href="/articles/">文章随笔</a></div>`;
+// 文章相关页面共用顶栏 tabs（与首页同款，文章侧选中；含插件声明的 tab 页）
+const TABS = () => topTabsHTML('articles');
 
 export function articleText(a) {
  if (a._text === undefined) {
@@ -86,9 +87,9 @@ export async function articlesPage() {
  const cloud = Object.entries(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
  // 登录用户：右栏创作入口 + 草稿箱（点击直接进编辑器）
  const adminSide = store.state.admin && !store.isStatic ? `<section class="side-card admin-side-card"><div class="section-heading"><h3>创作</h3></div><div class="admin-side-actions"><button class="pill" type="button" data-new-article>写新文章 ${icon('arrow')}</button></div><a class="text-link" href="/admin?tab=articles">管理全部文章与草稿</a>${store.articlesDrafts.length ? `<div class="admin-draft-list">${store.articlesDrafts.map(a => `<button type="button" class="admin-draft-item" data-edit-article="${a.id}"><strong>${esc(a.title)}</strong><span>${esc(dateLabel(a.created_at))}</span></button>`).join('')}</div>` : '<p class="small-label side-note">没有草稿</p>'}</section>` : '';
- store.main.innerHTML = `<div class="feed-layout"><section class="timeline">${TABS}<div class="articles-hero"><h1>文章随笔<span>。</span></h1><p>一些想认真写下来的事，比动态更长，比记忆更可靠。</p></div>${filterBar}<div id="article-rows">${filtered.length ? filtered.map(a => articleTeaserHTML(a)).join('') : empty(tag ? '这个标签下还没有文章' : '第一篇文章，等你落笔', tag ? '换个标签看看吧。' : store.isStatic ? '这里即将装满更长的故事。' : '到管理后台，用 Markdown 或富文本写下第一篇。', 'edit')}</div></section><aside class="right-column">${adminSide}<div class="tags-panel side-tags"><div class="section-heading"><h3>全部标签</h3><span>${cloud.length}</span></div><div class="tags-cloud">${cloud.map(([t, n]) => `<a class="tag-chip${t === tag ? ' active' : ''}" href="/articles/?tag=${encodeURIComponent(t)}">#${esc(t)}<small>${n}</small></a>`).join('')}</div></div><section class="side-card about-card"><h2>订阅</h2><p>通过 RSS 跟踪最新动态与文章，用你喜欢的阅读器即可。</p><div class="about-actions"><a class="pill" href="/rss.xml">订阅 RSS ${icon('arrow')}</a></div></section></aside></div>`;
+ store.main.innerHTML = `<div class="feed-layout"><section class="timeline">${TABS()}<div class="articles-hero"><h1>文章随笔<span>。</span></h1><p>一些想认真写下来的事，比动态更长，比记忆更可靠。</p></div>${filterBar}<div id="article-rows">${filtered.length ? filtered.map(a => articleTeaserHTML(a)).join('') : empty(tag ? '这个标签下还没有文章' : '第一篇文章，等你落笔', tag ? '换个标签看看吧。' : store.isStatic ? '这里即将装满更长的故事。' : '到管理后台，用 Markdown 或富文本写下第一篇。', 'edit')}</div></section><aside class="right-column">${adminSide}<div class="tags-panel side-tags"><div class="section-heading"><h3>全部标签</h3><span>${cloud.length}</span></div><div class="tags-cloud">${cloud.map(([t, n]) => `<a class="tag-chip${t === tag ? ' active' : ''}" href="/articles/?tag=${encodeURIComponent(t)}">#${esc(t)}<small>${n}</small></a>`).join('')}</div></div><section class="side-card about-card"><h2>订阅</h2><p>通过 RSS 跟踪最新动态与文章，用你喜欢的阅读器即可。</p><div class="about-actions"><a class="pill" href="/rss.xml">订阅 RSS ${icon('arrow')}</a></div></section></aside></div>`;
  const newBtn = document.querySelector('[data-new-article]');
- if (newBtn) newBtn.onclick = () => { store.editingArticle = 'new'; store.editorFormat = 'md'; history.pushState({}, '', '/admin?tab=articles'); admin(); };
+ if (newBtn) newBtn.onclick = () => { store.editingArticle = 'new'; store.editorFormat = 'md'; pushHistory('/admin?tab=articles'); admin(); };
  if (next) {
   const rows = document.querySelector('#article-rows');
   rows.insertAdjacentHTML('afterend', '<button class="secondary" id="more-articles" type="button">加载更多文章</button>');

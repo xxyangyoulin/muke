@@ -2,6 +2,7 @@ import { store } from './store.js';
 import { admin } from '../views/admin.js';
 
 const icons = {
+ pin:'<path d="m16 3 5 5-4 1-3 5-1 4-3-3-6 6 6-6-3-3 4-1 5-3z"/>',
  home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
  image:'<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/>',
  grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
@@ -85,7 +86,7 @@ export function profileName() { return esc(store.state.profile.name); }
 
 export function avatar(extra = '') { return store.state.profile.avatar ? `<img class="avatar ${extra}" src="${esc(store.state.profile.avatar)}" alt="${profileName()}">` : `<span class="avatar ${extra}">${esc(store.state.profile.name.slice(0,1))}</span>`; }
 
-export const postsByDate = () => [...store.posts].sort((x, y) => new Date(y.created_at) - new Date(x.created_at) || y.id - x.id);
+export const postsByDate = () => [...store.posts].sort((x, y) => Number(y.pinned || 0) - Number(x.pinned || 0) || new Date(y.created_at) - new Date(x.created_at) || y.id - x.id);
 
 const cardRenderers = window.MKBLOG._cards;
 window.MKBLOG.esc = esc;
@@ -118,9 +119,17 @@ export function postCommentsOn() { const o = store.state?.options || {}; return 
 
 export function updateProfile(){document.querySelectorAll('[data-profile="name"]').forEach(el=>el.textContent=store.state.profile.name);document.querySelectorAll('[data-profile="handle"]').forEach(el=>el.textContent='@'+(store.state.profile.handle||''));const sb=document.querySelector('.sidebar-bottom');const av=sb?.querySelector('.avatar');if(sb&&av)av.outerHTML=avatar('small');}
 
+// 动态头部身份：插件动态可声明来源身份（meta.avatar 图标 + meta.name 名称 + meta.handle 域名），
+// 如 RSS 订阅显示订阅站点的 favicon 与站名；未声明时用站长头像 / 昵称
+export function postAvatarHTML(post, extra = '') {
+ const a = post.meta?.avatar;
+ return a?.url ? `<img class="avatar ${extra}" src="${esc(a.thumb || a.url)}" alt="${esc(post.meta?.name || '')}">` : avatar(extra);
+}
+
 export function postHTML(post) {
  const liked = store.likedIds.has(post.id);
  const singleCompact = post.images.length === 1 && !pluginFullImages(post.source);
+ const feed = post.meta?.avatar?.url ? post.meta : null; // 来源身份三件套齐全才整体切换
  const images = (post.images || []).map((img, i) => { const ar = img.width && img.height ? Math.max(img.width / img.height, 0.5) : 1.5; return `<button class="post-image" type="button" data-media-post="${post.id}" data-media-index="${i}" aria-label="查看图片"${singleCompact ? ` style="aspect-ratio:${ar.toFixed(3)}"` : ''}><img src="${esc(img.thumb)}" alt="${esc(img.name || '动态图片')}" loading="lazy"></button>`; }).join('');
- return `<article class="post" id="post-${post.id}" data-source="${esc(post.source || '')}">${avatar()}<div class="post-body"><div class="post-meta"><strong>${profileName()}</strong>${verifiedBadge}<span>@${esc(store.state.profile.handle)}${(() => { const t = dateLabel(post.created_at); return t ? ` · ${esc(t)}` : ''; })()}</span>${post.source ? `<span class="source-badge${pluginBadgeClass(post.source)}">${esc(pluginLabel(post.source))}</span>` : ''}${store.state.admin ? `<div class="post-admin">${post.source ? '' : `<button class="icon-button" data-edit="${post.id}" aria-label="编辑动态">${icon('edit')}</button>`}<button class="icon-button" data-delete="${post.id}" aria-label="删除动态">${icon('trash')}</button></div>` : ''}</div>${post.meta && cardRenderers[post.meta.card] ? cardRenderers[post.meta.card](post) : `<p class="post-content">${esc(post.content)}</p>${images ? `<div class="post-images count${post.images.length}${singleCompact ? ' single-compact' : ''}">${images}</div>` : ''}`}<div class="post-actions">${store.isStatic || thirdPartyComments() || !postCommentsOn() ? '' : `<button data-post-comments="${post.id}">${icon('chat')}<span>${post.comment_count ? post.comment_count : '评论'}</span></button>`}<button class="like-button ${liked ? 'liked' : ''}" data-like="${post.id}" aria-pressed="${liked}">${icon('heart')}<span>${post.like_count ? post.like_count : (liked ? '已点赞' : '点赞')}</span></button><button data-share="${post.id}">${icon('arrow')}<span>分享</span></button>${post.link && /^https?:\/\//i.test(post.link) && !post.meta?.hide_source ? `<a class="post-link" href="${esc(post.link)}" target="_blank" rel="noopener">${icon('arrow')}原文</a>` : ''}${post.updated_at !== post.created_at ? '<span class="edited">已编辑</span>' : ''}</div><div class="post-comments-slot" data-comments-slot="${post.id}" hidden></div></div></article>`;
+ return `<article class="post" id="post-${post.id}" data-source="${esc(post.source || '')}">${postAvatarHTML(post)}<div class="post-body">${Number(post.pinned) ? '<span class="pinned-label">置顶</span>' : ''}<div class="post-meta"><strong>${feed ? esc(feed.name || post.source) : profileName()}</strong>${feed ? '' : verifiedBadge}<span>@${feed ? esc(feed.handle || '') : esc(store.state.profile.handle)}${(() => { const t = dateLabel(post.created_at); return t ? ` · ${esc(t)}` : ''; })()}</span>${post.source ? `<span class="source-badge${pluginBadgeClass(post.source)}">${esc(pluginLabel(post.source))}</span>` : ''}${store.state.admin ? `<div class="post-admin"><button class="icon-button" data-pin="${post.id}" aria-label="${Number(post.pinned) ? '取消置顶' : '置顶动态'}" title="${Number(post.pinned) ? '取消置顶' : '置顶动态'}" aria-pressed="${!!Number(post.pinned)}">${icon('pin')}</button>${post.source ? '' : `<button class="icon-button" data-edit="${post.id}" aria-label="编辑动态">${icon('edit')}</button>`}<button class="icon-button" data-delete="${post.id}" aria-label="删除动态">${icon('trash')}</button></div>` : ''}</div>${post.meta && cardRenderers[post.meta.card] ? cardRenderers[post.meta.card](post) : `<p class="post-content">${esc(post.content)}</p>${images ? `<div class="post-images count${post.images.length}${singleCompact ? ' single-compact' : ''}">${images}</div>` : ''}`}<div class="post-actions">${store.isStatic || thirdPartyComments() || !postCommentsOn() ? '' : `<button data-post-comments="${post.id}">${icon('chat')}<span>${post.comment_count ? post.comment_count : '评论'}</span></button>`}<button class="like-button ${liked ? 'liked' : ''}" data-like="${post.id}" aria-pressed="${liked}">${icon('heart')}<span>${post.like_count ? post.like_count : (liked ? '已点赞' : '点赞')}</span></button><button data-share="${post.id}">${icon('arrow')}<span>分享</span></button>${post.link && /^https?:\/\//i.test(post.link) && !post.meta?.hide_source ? `<a class="post-link" href="${esc(post.link)}" target="_blank" rel="noopener">${icon('arrow')}原文</a>` : ''}${post.updated_at !== post.created_at ? '<span class="edited">已编辑</span>' : ''}</div><div class="post-comments-slot" data-comments-slot="${post.id}" hidden></div></div></article>`;
 }

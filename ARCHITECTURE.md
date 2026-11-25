@@ -55,7 +55,7 @@ tests/                  冒烟套件：run.sh（lint + 沙箱 + API + 浏览器 
 ## 关键机制
 
 - **配置三层**：环境变量 > `config.php` > 核心与插件默认值；插件用 `defaults` / `env` 声明专属配置。后台「站点参数」与插件设置写入 settings 表后经 `opt()` 优先于文件配置。
-- **动态插件**：`plugins/<id>/plugin.php` 声明字段与 `sync()`；条目以 `source_key` 幂等入库，用户删除立墓碑（`plugin_tombstones`）永不再同步；`meta.card` 选择卡片样式，前端由插件的 `plugin.js` 经 `MKBLOG.registerCard` 渲染，无 JS 时用 `render_post` 烘焙。
+- **动态插件**：`plugins/<id>/plugin.php` 声明字段与 `sync()`；条目以 `source_key` 幂等入库，用户删除立墓碑（`plugin_tombstones`）永不再同步；`meta.card` 选择卡片样式，前端由插件的 `plugin.js` 经 `MKBLOG.registerCard` 渲染，无 JS 时用 `render_post` 烘焙。插件可声明 `timeline_field`：对应配置关闭时其动态整体退出首页时间线与站点 RSS（如 RSS 订阅默认只在自有标签页展示）；`page.tab` 让插件页面进首页顶部标签（`state.plugins` 提供 route/title）。
 - **插件契约（完全自包含）**：除卡片外，插件还可声明——
   - `tables` + `schema_version`：自带建表/数据迁移，仅版本增加时执行，由 `src/Database.php` 记录版本并在事务中迁移
   - `page`：公开页面（核心放行路由、渲染导航、静态导出）；`plugin.js` 经 `MKBLOG.registerPage` 提供前端渲染

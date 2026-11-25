@@ -17,6 +17,7 @@ require_once __DIR__ . '/src/Export.php';
 require_once __DIR__ . '/src/Minify.php';
 require_once __DIR__ . '/src/Plugins.php';
 require_once __DIR__ . '/src/Netlify.php';
+require_once __DIR__ . '/src/Tasks.php';
 
 define('DATA_DIR', (string)config('data_dir'));
 date_default_timezone_set((string)config('timezone'));

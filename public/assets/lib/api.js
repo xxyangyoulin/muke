@@ -18,8 +18,9 @@ export async function api(action, data) {
 export async function morePosts() {
  if (!store.postsNext) return;
  const cursor = store.postsNext;
+ const previous = store.posts;
  const result = await apiGet('posts', {cursor, q: store.postsQuery});
- if (cursor !== store.postsNext) return;
+ if (cursor !== store.postsNext || store.posts !== previous) return;
  const known = new Set(store.posts.map(post => post.id));
  store.posts.push(...result.posts.filter(post => !known.has(post.id)));
  store.postsNext = result.next_cursor;

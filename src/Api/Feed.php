@@ -6,8 +6,7 @@ function api_state(PDO $db, bool $admin): never {
     $settings = settings($db);
     $avatarFile = DATA_DIR . '/avatar.webp';
     $coverFile = DATA_DIR . '/cover.webp';
-    $plugins = public_plugins();
-    $state = ['admin' => $admin, 'setup' => !(bool)$db->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'csrf' => $_SESSION['csrf'], 'profile' => ['name' => $settings['name'] ?? config('site_name'), 'bio' => $settings['bio'] ?? (string)config('profile_bio'), 'handle' => $settings['handle'] ?? (string)config('profile_handle'), 'avatar' => is_file($avatarFile) ? '/image?avatar=1&v=' . filemtime($avatarFile) : null, 'cover' => is_file($coverFile) ? '/image?cover=1&v=' . filemtime($coverFile) : null], 'plugins' => $plugins, 'options' => public_options()];
+    $state = ['admin' => $admin, 'setup' => !(bool)$db->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'csrf' => $_SESSION['csrf'], 'profile' => ['name' => $settings['name'] ?? config('site_name'), 'bio' => $settings['bio'] ?? (string)config('profile_bio'), 'handle' => $settings['handle'] ?? (string)config('profile_handle'), 'avatar' => is_file($avatarFile) ? '/image?avatar=1&v=' . filemtime($avatarFile) : null, 'cover' => is_file($coverFile) ? '/image?cover=1&v=' . filemtime($coverFile) : null], 'plugins' => public_plugins($db), 'options' => public_options()];
     if ($admin) {
         $state['version'] = MKBLOG_VERSION;
         $state['netlify'] = ['site' => $settings['netlify_site'] ?? '', 'has_token' => isset($settings['netlify_token']), 'auto_deploy' => opt('auto_deploy') === '1', 'auto_deploy_debounce' => (int)opt('auto_deploy_debounce') ?: 10];
@@ -20,27 +19,28 @@ function api_state(PDO $db, bool $admin): never {
 function api_posts(PDO $db, bool $admin): never {
     $limit = max(1, min(100, (int)($_GET['limit'] ?? 30)));
     $query = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 200);
-    $where = $query === '' ? '1 = 1' : 'p.content LIKE ?';
+    // 首页时间线：声明 timeline_field 且关闭的插件动态整体退出（如 RSS 订阅默认只在自己的标签页展示）
+    $where = ($query === '' ? '1 = 1' : 'p.content LIKE ?') . feed_source_filter($db);
     $params = $query === '' ? [] : ['%' . $query . '%'];
     $total = $db->prepare('SELECT COUNT(*) FROM posts p WHERE ' . $where);
     $total->execute($params);
     $count = (int)$total->fetchColumn();
     if (!empty($_GET['cursor'])) {
         $cursor = json_decode(base64_decode((string)$_GET['cursor'], true) ?: '', true);
-        if (!is_array($cursor) || !array_is_list($cursor) || count($cursor) !== 2 || !is_string($cursor[0]) || !is_int($cursor[1])) json_response(['error' => '分页游标无效'], 422);
-        $where .= ' AND (p.created_at, p.id) < (?, ?)';
-        array_push($params, $cursor[0], $cursor[1]);
+        if (!is_array($cursor) || !array_is_list($cursor) || count($cursor) !== 3 || !in_array($cursor[0], [0, 1], true) || !is_string($cursor[1]) || !is_int($cursor[2])) json_response(['error' => '分页游标无效'], 422);
+        $where .= ' AND (p.pinned, p.created_at, p.id) < (?, ?, ?)';
+        array_push($params, $cursor[0], $cursor[1], $cursor[2]);
     }
-    $stmt = $db->prepare('SELECT p.*, (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count FROM posts p WHERE ' . $where . ' ORDER BY p.created_at DESC, p.id DESC LIMIT ' . ($limit + 1));
+    $stmt = $db->prepare('SELECT p.*, (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count FROM posts p WHERE ' . $where . ' ORDER BY p.pinned DESC, p.created_at DESC, p.id DESC LIMIT ' . ($limit + 1));
     $stmt->execute($params);
     $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $more = count($posts) > $limit;
     if ($more) array_pop($posts);
     $last = end($posts);
     $commentCounts = comment_counts($db, 'post', array_column($posts, 'id'));
-    foreach ($posts as &$post) { $post['images'] = post_images($db, $post['images'] ?? '[]'); $post['meta'] = post_meta($post); $post['comment_count'] = $commentCounts['post:' . $post['id']] ?? 0; }
+    foreach ($posts as &$post) { $post['images'] = post_images($db, $post['images'] ?? '[]'); $post['meta'] = post_meta($post); if (($post['meta']['avatar'] ?? null) !== null) $post['meta']['avatar'] = post_avatar($db, $post['meta']); $post['comment_count'] = $commentCounts['post:' . $post['id']] ?? 0; }
     unset($post);
-    json_response(['posts' => $posts, 'total' => $count, 'next_cursor' => $more ? base64_encode(json_encode([$last['created_at'], (int)$last['id']])) : null]);
+    json_response(['posts' => $posts, 'total' => $count, 'next_cursor' => $more ? base64_encode(json_encode([(int)$last['pinned'], $last['created_at'], (int)$last['id']])) : null]);
 }
 
 function api_articles(PDO $db, bool $admin): never {

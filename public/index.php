@@ -20,7 +20,7 @@ if ($path === '/rss.xml' || $path === '/sitemap.xml') {
     if ($path === '/rss.xml') {
         echo rss_xml_build($feedProfile,
             $db->query('SELECT * FROM articles WHERE draft = 0 ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC),
-            $db->query('SELECT * FROM posts ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC));
+            $db->query('SELECT * FROM posts p WHERE 1 = 1' . feed_source_filter($db) . ' ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC));
     } else {
         $feedUrls = ['/' => null, '/articles/' => null];
         foreach (plugin_pages($db) as $feedRoute => $_) $feedUrls[$feedRoute . '/'] = null;

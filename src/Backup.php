@@ -29,6 +29,7 @@ function backup_create(PDO $db, string $archive): void {
         foreach ($paths as $relative => $path) {
             if (!file_exists($path)) continue;
             if (is_file($path)) { $zip->addFile($path, $relative); continue; }
+            if (str_starts_with(realpath(dirname($archive)) . '/' . basename($archive), rtrim((string)realpath($path), '/') . '/')) throw new RuntimeException('备份目标不能位于被备份的资源目录内');
             $zip->addEmptyDir($relative);
             foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS)) as $file) {
                 if ($file->isLink()) throw new RuntimeException('备份资源不能包含符号链接');

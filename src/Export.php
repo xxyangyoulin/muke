@@ -6,7 +6,7 @@ declare(strict_types=1);
 // 注意：本文件位于 src/，仓库根路径 = dirname(__DIR__)。
 
 /** 导出编排：加锁 → 依序执行各阶段 → 汇总 */
-function export_site(PDO $db): array {
+function export_site(PDO $db, ?callable $checkCancelled = null): array {
     set_time_limit(0);
     $lock = fopen(DATA_DIR . '/export.lock', 'c');
     if (!flock($lock, LOCK_EX | LOCK_NB)) throw new RuntimeException('已有导出任务正在运行');
@@ -15,19 +15,29 @@ function export_site(PDO $db): array {
         $stage = $root . '/.export-' . bin2hex(random_bytes(8));
         $previous = $root . '/.dist-previous-' . bin2hex(random_bytes(8));
         $ctx = ['db' => $db, 'root' => $root, 'dest' => $stage, 'files' => []];
+        if ($checkCancelled) $checkCancelled();
         export_prepare($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_profile($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_plugins($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_resolve_posts($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_resolve_articles($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_write_json($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_bake_pages($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_write_feeds($ctx);
+        if ($checkCancelled) $checkCancelled();
         export_cleanup_media($ctx);
         foreach (['index.html', 'assets/content.json', 'assets/articles.json', 'rss.xml', 'sitemap.xml'] as $required) {
             if (!is_file($stage . '/' . $required)) throw new RuntimeException('导出产物不完整：' . $required);
         }
         json_decode(file_get_contents($stage . '/assets/content.json'), true, 512, JSON_THROW_ON_ERROR);
+        if ($checkCancelled) $checkCancelled();
         $hadPrevious = is_dir($root . '/dist');
         if ($hadPrevious && !rename($root . '/dist', $previous)) throw new RuntimeException('无法保留上一版导出');
         if (!rename($stage, $root . '/dist')) {
@@ -133,35 +143,41 @@ function export_plugins(array &$ctx): void {
     $ctx['pluginMeta'] = $pluginMeta;
 }
 
-/** 阶段四：动态图片引用解析为静态地址（上传图复制 + 缩略图，插件引用复用导出文件） */
+/** 单个图片引用 → 静态描述符（上传图复制 + 缩略图；插件引用复用插件导出的文件）；不可解析返回 null */
+function export_resolve_media(array &$ctx, string $ref): ?array {
+    $dest = $ctx['dest'];
+    [$kind, $value] = str_contains($ref, ':') ? explode(':', $ref, 2) : [null, null];
+    if ($kind === 'up' && is_file(DATA_DIR . '/uploads/' . $value) && ($info = getimagesize(DATA_DIR . '/uploads/' . $value))) {
+        $original = $dest . '/media/uploads/' . $value;
+        $thumbnail = $dest . '/thumbnails/up-' . $value . '.webp';
+        if (!is_file($original) && !copy(DATA_DIR . '/uploads/' . $value, $original)) throw new RuntimeException('动态图片复制失败');
+        if (!is_file($thumbnail)) {
+            exec(thumb_magick(DATA_DIR . '/uploads/' . $value, $thumbnail), $output, $code);
+            if ($code !== 0) throw new RuntimeException('动态图片缩略图生成失败，需要 ImageMagick');
+        }
+        $ctx['files'][] = $original;
+        $ctx['files'][] = $thumbnail;
+        return ['url' => '/media/uploads/' . $value, 'thumb' => '/thumbnails/up-' . $value . '.webp', 'width' => $info[0], 'height' => $info[1], 'bytes' => filesize(DATA_DIR . '/uploads/' . $value)];
+    }
+    return isset($ctx['pluginRefs'][$ref]) ? $ctx['pluginRefs'][$ref] : null;
+}
+
+/** 阶段四：动态图片引用解析为静态地址（上传图复制 + 缩略图，插件引用复用导出文件）；meta.avatar 同步解析 */
 function export_resolve_posts(array &$ctx): void {
-    [$db, $dest] = [$ctx['db'], $ctx['dest']];
-    $pluginRefs = $ctx['pluginRefs'];
-    $files = &$ctx['files'];
-    $posts = $db->query('SELECT * FROM posts ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $db = $ctx['db'];
+    $posts = $db->query('SELECT * FROM posts p WHERE 1 = 1' . feed_source_filter($db) . ' ORDER BY pinned DESC, created_at DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($posts as &$post) {
         $images = [];
         foreach (json_decode($post['images'] ?? '[]', true) ?: [] as $ref) {
-            [$kind, $value] = is_string($ref) && str_contains($ref, ':') ? explode(':', $ref, 2) : [null, null];
-            if ($kind === 'up' && is_file(DATA_DIR . '/uploads/' . $value) && ($info = getimagesize(DATA_DIR . '/uploads/' . $value))) {
-                $original = $dest . '/media/uploads/' . $value;
-                $thumbnail = $dest . '/thumbnails/up-' . $value . '.webp';
-                if (!is_file($original) && !copy(DATA_DIR . '/uploads/' . $value, $original)) throw new RuntimeException('动态图片复制失败');
-                if (!is_file($thumbnail)) {
-                    exec(thumb_magick(DATA_DIR . '/uploads/' . $value, $thumbnail), $output, $code);
-                    if ($code !== 0) throw new RuntimeException('动态图片缩略图生成失败，需要 ImageMagick');
-                }
-                $files[] = $original;
-                $files[] = $thumbnail;
-                $images[] = ['ref' => $ref, 'url' => '/media/uploads/' . $value, 'thumb' => '/thumbnails/up-' . $value . '.webp', 'width' => $info[0], 'height' => $info[1], 'bytes' => filesize(DATA_DIR . '/uploads/' . $value)];
-            } elseif (isset($pluginRefs[$ref])) {
-                $images[] = ['ref' => $ref] + $pluginRefs[$ref];
-            }
+            if (!is_string($ref)) continue;
+            if ($hit = export_resolve_media($ctx, $ref)) $images[] = ['ref' => $ref] + $hit;
         }
         $post['images'] = $images;
         $post['meta'] = post_meta($post);
+        $avatarRef = $post['meta']['avatar'] ?? null; // 来源身份图标（如 RSS 订阅的 favicon 引用）
+        if (is_string($avatarRef) && $avatarRef !== '') $post['meta']['avatar'] = export_resolve_media($ctx, $avatarRef);
     }
-    unset($post, $files);
+    unset($post);
     $ctx['posts'] = $posts;
 }
 
@@ -204,7 +220,7 @@ function export_resolve_articles(array &$ctx): void {
 function export_write_json(array &$ctx): void {
     [$db, $dest] = [$ctx['db'], $ctx['dest']];
     $pluginPageMap = plugin_pages($db); // 启用插件的页面（含路由与标题）
-    $data = ['state' => ['admin' => false, 'setup' => false, 'profile' => $ctx['profile'], 'plugins' => public_plugins(), 'options' => public_options()], 'posts' => $ctx['posts'], 'plugins' => $ctx['pluginItems'], 'plugins_meta' => $ctx['pluginMeta']];
+    $data = ['state' => ['admin' => false, 'setup' => false, 'profile' => $ctx['profile'], 'plugins' => public_plugins($db), 'options' => public_options()], 'posts' => $ctx['posts'], 'plugins' => $ctx['pluginItems'], 'plugins_meta' => $ctx['pluginMeta']];
     $articlesData = ['articles' => array_map(fn($a) => ['id' => (int)$a['id'], 'title' => $a['title'], 'html' => $a['html'], 'tags' => $a['tags'], 'created_at' => $a['created_at'], 'updated_at' => $a['updated_at'], 'comments' => comment_enabled() ? comments_of($db, 'article', (int)$a['id']) : []], $ctx['articles'])];
     file_put_contents($dest . '/assets/articles.json', json_encode($articlesData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     file_put_contents($dest . '/assets/content.json', json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
@@ -287,7 +303,7 @@ function export_bake_pages(array &$ctx): void {
             $feed = [];
             foreach ($posts as $post) $feed[] = ['time' => strtotime($post['created_at']), 'kind' => 'post', 'data' => $post];
             foreach ($articles as $article) $feed[] = ['time' => strtotime($article['created_at']), 'kind' => 'article', 'data' => $article];
-            usort($feed, fn($a, $b) => $b['time'] <=> $a['time']);
+            usort($feed, fn($a, $b) => ((int)($b['data']['pinned'] ?? 0) <=> (int)($a['data']['pinned'] ?? 0)) ?: ($b['time'] <=> $a['time']) ?: ($b['data']['id'] <=> $a['data']['id']));
             foreach ($feed as $item) {
                 if ($item['kind'] === 'article') {
                     $article = $item['data'];
@@ -298,13 +314,15 @@ function export_bake_pages(array &$ctx): void {
                 $images = '';
                 $pluginDef = plugin_list()[$post['source'] ?? ''] ?? null;
                 $singleCompact = count($post['images']) === 1 && !($pluginDef['post_images_full'] ?? false);
+                // 声明了来源身份的插件动态（如 RSS 订阅）显示订阅站点名而非站长名
+                $identityName = is_array($post['meta']['avatar'] ?? null) ? (string)($post['meta']['name'] ?? '') : $profile['name'];
                 foreach ($post['images'] as $image) { $ar = ($image['width'] ?? 0) > 0 ? max($image['width'] / max(1, $image['height']), 0.5) : 1.5; $images .= '<div class="post-image"' . ($singleCompact ? ' style="aspect-ratio:' . number_format($ar, 3, '.', '') . '"' : '') . '><img src="' . $escape($image['thumb']) . '" alt="' . $escape($image['name'] ?? '动态图片') . '" loading="lazy"></div>'; }
                 if ($pluginDef && isset($pluginDef['render_post'])) {
                     $postBody = ($pluginDef['render_post'])($post);
                 } else {
                     $postBody = '<p class="post-content">' . $escape($post['content']) . '</p>' . ($images ? '<div class="post-images count' . count($post['images']) . '">' . $images . '</div>' : '');
                 }
-                $body .= '<article class="post" id="post-' . $post['id'] . '" data-source="' . $escape($post['source'] ?? '') . '"><div><strong>' . $escape($profile['name']) . '</strong>' . $postBody . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
+                $body .= '<article class="post" id="post-' . $post['id'] . '" data-source="' . $escape($post['source'] ?? '') . '"><div><strong>' . $escape($identityName) . '</strong>' . (!empty($post['pinned']) ? '<span class="pinned-label">置顶</span>' : '') . $postBody . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
             }
             if (!$feed) $body .= '<div class="empty-state"><h3>故事，从这一刻开始</h3><p>记录日常的微小瞬间，收集值得停留的风景。</p></div>';
             $body .= '</div></section>';

@@ -7,6 +7,8 @@ import { mountInlineComments } from './components/comments.js';
 import { feed } from './views/feed.js';
 import { loadArticles, articlesPage, articlePage } from './views/articles.js';
 import { admin, loadPlugins } from './views/admin.js';
+import { confirmEditorLeave, clearArticleDraft } from './components/editor-protection.js';
+import { pushHistory, acceptHistoryNavigation } from './lib/navigation.js';
 
 store.isStatic = document.documentElement.dataset.static === 'true';
 store.main = document.querySelector('#main');
@@ -43,8 +45,9 @@ function goto(href, push = true) {
  if (!target) return false;
  const prevQuery = location.search.replace('?', '');
  const newQuery = clean.split('?')[1] || '';
- if (push) history.pushState({}, '', clean || '/');
  if (push && target === store.page && !(target === 'article' && articleId !== store.currentArticleId) && newQuery === prevQuery) { window.scrollTo({top: 0, behavior: 'smooth'}); return true; }
+ if (push && !confirmEditorLeave()) return true;
+ if (push) pushHistory(clean || '/');
  store.page = target;
  store.currentArticleId = articleId;
  renderPage();
@@ -53,6 +56,17 @@ function goto(href, push = true) {
  return true;
 }
 document.addEventListener('click',async e=>{
+ const pin = e.target.closest('[data-pin]');
+ if (pin) {
+  const post = store.posts.find(p => p.id === Number(pin.dataset.pin));
+  pin.disabled = true;
+  try {
+   await api('pin-post', {id:post.id, pinned:Number(post.pinned) ? 0 : 1});
+   store.posts = (await api('posts')).posts;
+   store.page === 'admin' ? admin() : feed();
+   toast(Number(post.pinned) ? '已取消置顶' : '已置顶');
+  } catch (error) { toast(error.message); pin.disabled = false; }
+ }
  const close=e.target.closest('[data-close]');if(close)document.getElementById(close.dataset.close).close();
  const like=e.target.closest('[data-like]');if(like){const id=Number(like.dataset.like);const was=store.likedIds.has(id);like.disabled=true;like.classList.toggle('liked',!was);like.querySelector('span').textContent=!was?'已点赞':'点赞';api('like',{id,token:store.likeToken}).then(r=>{store.likedIds.has(id)?store.likedIds.delete(id):store.likedIds.add(id);const small=like.querySelector('small')||like.appendChild(document.createElement('small'));small.textContent=r.count>0?` ${r.count}`:'';}).catch(()=>{like.classList.toggle('liked',was);like.querySelector('span').textContent=was?'已点赞':'点赞';toast('点赞失败，稍后再试');}).finally(()=>{like.disabled=false;});}
  const share=e.target.closest('[data-share]');if(share){const url=location.origin+'/#post-'+share.dataset.share;try{await navigator.clipboard.writeText(url);toast('动态链接已复制');}catch{toast('请复制链接：'+url);}}
@@ -64,7 +78,7 @@ document.addEventListener('click',async e=>{
  const postComments=e.target.closest('[data-post-comments]');if(postComments){const pid=Number(postComments.dataset.postComments);const slot=document.querySelector(`[data-comments-slot="${pid}"]`);if(slot){if(!slot.hidden){slot.hidden=true;}else{slot.hidden=false;if(!slot.firstChild){const post=store.posts.find(p=>p.id===pid);if(post)mountInlineComments(post,slot);}slot.scrollIntoView({block:'nearest',behavior:'smooth'});}}}
  const del=e.target.closest('[data-delete]');if(del){store.pendingDelete=Number(del.dataset.delete);const d2=document.querySelector('#delete-dialog');d2.querySelector('h2').textContent='删除这条动态？';d2.querySelector('p').textContent='删除后无法恢复。';d2.showModal();}
  const editArticle=e.target.closest('[data-edit-article]');if(editArticle){const id=Number(editArticle.dataset.editArticle);try{const a=(await apiGet('articles',{id})).article;store.editingArticle=a;store.page='admin';admin();}catch(error){toast(error.message);}}
- const delArticle=e.target.closest('[data-delete-article]');if(delArticle){store.pendingArticleDelete=Number(delArticle.dataset.deleteArticle);const dialog=document.querySelector('#delete-dialog');dialog.querySelector('h2').textContent='删除这篇文章？';dialog.querySelector('p').textContent='删除后无法恢复，文章里的图片也会一并清理。';dialog.showModal();}
+ const delArticle=e.target.closest('[data-delete-article]');if(delArticle){store.pendingArticleDelete=Number(delArticle.dataset.deleteArticle);const dialog=document.querySelector('#delete-dialog');dialog.querySelector('h2').textContent='删除这篇文章？';dialog.querySelector('p').textContent='删除后无法恢复，修订历史及不再使用的图片也会一并清理。';dialog.showModal();}
  const articleImg=e.target.closest('.article-content img');if(articleImg){const container=articleImg.closest('.article-content');const imgs=[...container.querySelectorAll('img')];const items=imgs.map(i=>({src:i.currentSrc||i.src,width:i.naturalWidth||1600,height:i.naturalHeight||1200,downloadUrl:(i.currentSrc||i.src)+(i.src.includes('?')?'&download=1':''),caption:''}));e.preventDefault();openLightbox(items,imgs.indexOf(articleImg),articleImg);}
 });
 document.querySelector('#confirm-plugin-remove').onclick=async()=>{
@@ -82,7 +96,7 @@ document.querySelector('#confirm-plugin-remove').onclick=async()=>{
 document.querySelector('#confirm-delete').onclick=async()=>{
  const dialog=document.querySelector('#delete-dialog');
  if(store.pendingPluginPurge){const id=store.pendingPluginPurge;store.pendingPluginPurge=null;dialog.close();try{await api('purge-plugin-posts',{id});await loadPlugins();admin();toast('已清空该插件的动态');}catch(e){toast(e.message);}return;}
- if(store.pendingArticleDelete){try{await api('delete-article',{id:store.pendingArticleDelete});await loadArticles(true);if(store.editingArticle!==false&&store.editingArticle.id===store.pendingArticleDelete)store.editingArticle=false;store.pendingArticleDelete=0;dialog.close();admin();toast('文章已删除');}catch(e){toast(e.message);}return;}
+ if(store.pendingArticleDelete){try{await api('delete-article',{id:store.pendingArticleDelete});clearArticleDraft(store.pendingArticleDelete);await loadArticles(true);if(store.editingArticle!==false&&store.editingArticle.id===store.pendingArticleDelete)store.editingArticle=false;store.pendingArticleDelete=0;dialog.close();admin();toast('文章已删除');}catch(e){toast(e.message);}return;}
  try{await api('delete-post',{id:store.pendingDelete});store.posts=(await api('posts')).posts;dialog.close();store.page==='admin'?admin():feed();toast('动态已删除');}catch(e){toast(e.message);}};
 document.querySelector('#edit-form').onsubmit=async e=>{e.preventDefault();try{
  const data=new FormData(e.target);data.set('keep',JSON.stringify(store.editKeep));
@@ -91,7 +105,13 @@ document.querySelector('#edit-form').onsubmit=async e=>{e.preventDefault();try{
  store.posts=(await api('posts')).posts;document.querySelector('#edit-dialog').close();store.page==='admin'?admin():feed();toast('修改已保存');
 }catch(error){toast(error.message);}};
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
-if(!store.isStatic)document.querySelector('#new-post').onclick=()=>{if(store.state?.admin){if(store.page==='feed'||store.page==='admin')document.querySelector('#compose-content').focus();else goto('/admin');}else goto('/admin');};
+if(!store.isStatic)document.querySelector('#new-post').onclick=()=>{
+ if (document.querySelector('.editor-page')) {
+  if (!confirmEditorLeave()) return;
+  store.editingArticle = false; store.page = 'admin'; store.adminTab = 'overview'; admin();
+ }
+ if(store.state?.admin){if(store.page==='feed'||store.page==='admin')document.querySelector('#compose-content')?.focus();else goto('/admin');}else goto('/admin');
+};
 document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
 async function init(){
  try{
@@ -126,4 +146,6 @@ document.addEventListener('click', e => {
  if (link.pathname.replace(/\/+$/, '') === location.pathname.replace(/\/+$/, '') && link.search === location.search) return;
  if (goto(link.getAttribute('href'))) e.preventDefault();
 });
-window.addEventListener('popstate', () => goto(location.pathname, false));
+window.addEventListener('popstate', () => {
+ if (acceptHistoryNavigation(confirmEditorLeave)) goto(location.pathname + location.search, false);
+});

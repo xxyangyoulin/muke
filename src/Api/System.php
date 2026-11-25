@@ -268,10 +268,17 @@ function api_netlify_deploy(PDO $db, array $input, string $action, bool $admin):
     }
     // 持锁写入启动占位；子进程再持有同一把锁直到部署结束。
     try {
-        netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
+        @unlink(DATA_DIR . '/deploy.cancel');
+        netlify_status_write(['deploy_id' => '', 'state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
         auto_deploy_pending_clear(); // 手动部署内容已是最新，取消排队中的自动任务
     } finally { fclose($lock); }
     deploy_spawn(dirname(__DIR__, 2) . '/bin/deploy-netlify.php');
+    json_response(['ok' => true]);
+}
+
+function api_cancel_deploy(PDO $db, array $input, string $action, bool $admin): never {
+    if (!netlify_deploy_running()) json_response(['error' => '当前没有进行中的部署'], 409);
+    file_put_contents(DATA_DIR . '/deploy.cancel', '1', LOCK_EX);
     json_response(['ok' => true]);
 }
 
@@ -281,6 +288,7 @@ function api_deploy_status(PDO $db, bool $admin): never {
     $pending = auto_deploy_pending_read();
     json_response([
         'status' => netlify_status_read() ?: null,
+        'cancelling' => is_file(DATA_DIR . '/deploy.cancel') && netlify_deploy_running(),
         'pending' => $pending ? ['due_at' => (int)($pending['due_at'] ?? 0), 'in' => max(0, (int)($pending['due_at'] ?? 0) - time())] : null,
     ]);
 }
@@ -291,7 +299,7 @@ function api_backup_export(PDO $db, bool $admin): never {
         foreach (glob(DATA_DIR . '/uploads/*') as $f) {
             if (is_file($f)) $uploads[basename($f)] = base64_encode((string)file_get_contents($f));
         }
-        json_response(['app' => 'mkblog', 'version' => 1, 'created_at' => date(DATE_ATOM), 'settings' => settings($db), 'posts' => $db->query('SELECT * FROM posts')->fetchAll(PDO::FETCH_ASSOC), 'articles' => $db->query('SELECT * FROM articles')->fetchAll(PDO::FETCH_ASSOC), 'tombstones' => $db->query('SELECT * FROM plugin_tombstones')->fetchAll(PDO::FETCH_ASSOC), 'comments' => $db->query('SELECT id, kind, target_id, author, email, site, content, created_at, status, reply_to FROM comments')->fetchAll(PDO::FETCH_ASSOC), 'uploads' => $uploads]);
+        json_response(['app' => 'mkblog', 'version' => 1, 'created_at' => date(DATE_ATOM), 'settings' => settings($db), 'posts' => $db->query('SELECT * FROM posts')->fetchAll(PDO::FETCH_ASSOC), 'articles' => $db->query('SELECT * FROM articles')->fetchAll(PDO::FETCH_ASSOC), 'article_revisions' => $db->query('SELECT * FROM article_revisions')->fetchAll(PDO::FETCH_ASSOC), 'tombstones' => $db->query('SELECT * FROM plugin_tombstones')->fetchAll(PDO::FETCH_ASSOC), 'comments' => $db->query('SELECT id, kind, target_id, author, email, site, content, created_at, status, reply_to FROM comments')->fetchAll(PDO::FETCH_ASSOC), 'uploads' => $uploads]);
 }
 
 /** 打包 dist/ 为 zip 供下载（须先生成静态站点；缓存 zip 比 dist 最新文件新时直接复用） */
@@ -331,16 +339,22 @@ function api_backup_import(PDO $db, array $input, string $action, bool $admin): 
     try {
         $db->exec('DELETE FROM posts');
         $db->exec('DELETE FROM articles');
+        $db->exec('DELETE FROM article_revisions');
         $db->exec('DELETE FROM comments');
         $db->exec('DELETE FROM plugin_tombstones');
         $db->exec('DELETE FROM settings');
         $insSetting = $db->prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
         foreach ((array)($input['settings'] ?? []) as $k => $v) $insSetting->execute([(string)$k, (string)$v]);
-        $insPost = $db->prepare('INSERT INTO posts (id, content, images, meta, created_at, updated_at, source, source_key, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        foreach ((array)($input['posts'] ?? []) as $row) $insPost->execute([$row['id'] ?? null, $row['content'] ?? '', $row['images'] ?? '[]', $row['meta'] ?? '', $row['created_at'] ?? date(DATE_ATOM), $row['updated_at'] ?? date(DATE_ATOM), $row['source'] ?? '', $row['source_key'] ?? '', $row['link'] ?? '']);
+        $insPost = $db->prepare('INSERT INTO posts (id, content, images, meta, created_at, updated_at, source, source_key, link, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        foreach ((array)($input['posts'] ?? []) as $row) $insPost->execute([$row['id'] ?? null, $row['content'] ?? '', $row['images'] ?? '[]', $row['meta'] ?? '', $row['created_at'] ?? date(DATE_ATOM), $row['updated_at'] ?? date(DATE_ATOM), $row['source'] ?? '', $row['source_key'] ?? '', $row['link'] ?? '', empty($row['pinned']) ? 0 : 1]);
         $insArticle = $db->prepare('INSERT INTO articles (id, title, content, format, tags, draft, images, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         foreach ((array)($input['articles'] ?? []) as $row) $insArticle->execute([$row['id'] ?? null, $row['title'] ?? '', $row['content'] ?? '', $row['format'] ?? 'md', $row['tags'] ?? '', (int)($row['draft'] ?? 0), $row['images'] ?? '[]', $row['created_at'] ?? date(DATE_ATOM), $row['updated_at'] ?? date(DATE_ATOM)]);
         $insTomb = $db->prepare('INSERT OR IGNORE INTO plugin_tombstones (key, plugin, deleted_at) VALUES (?, ?, ?)');
+        $insRevision = $db->prepare('INSERT INTO article_revisions (id, article_id, title, content, format, tags, draft, images, updated_at, saved_at) SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ? FROM articles WHERE id = ?');
+        foreach ((array)($input['article_revisions'] ?? []) as $row) {
+            $content = (string)($row['content'] ?? '');
+            $insRevision->execute([$row['id'] ?? null, (string)($row['title'] ?? ''), $content, ($row['format'] ?? '') === 'html' ? 'html' : 'md', normalize_tags((string)($row['tags'] ?? '')), empty($row['draft']) ? 0 : 1, json_encode(article_image_refs($content)), $row['updated_at'] ?? date(DATE_ATOM), $row['saved_at'] ?? date(DATE_ATOM), (int)($row['article_id'] ?? 0)]);
+        }
         foreach ((array)($input['tombstones'] ?? []) as $row) $insTomb->execute([$row['key'] ?? '', $row['plugin'] ?? '', $row['deleted_at'] ?? date(DATE_ATOM)]);
         $insComment = $db->prepare('INSERT INTO comments (id, kind, target_id, author, email, site, content, created_at, status, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         foreach ((array)($input['comments'] ?? []) as $row) $insComment->execute([$row['id'] ?? null, in_array($row['kind'] ?? '', COMMENT_KINDS, true) ? $row['kind'] : 'post', (int)($row['target_id'] ?? 0), mb_substr((string)($row['author'] ?? ''), 0, 40), (string)($row['email'] ?? ''), (string)($row['site'] ?? ''), (string)($row['content'] ?? ''), $row['created_at'] ?? date(DATE_ATOM), in_array($row['status'] ?? '', ['approved', 'pending', 'spam'], true) ? $row['status'] : 'approved', $row['reply_to'] ?? null]);

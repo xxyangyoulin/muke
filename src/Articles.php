@@ -35,6 +35,22 @@ function article_image_refs(string $content): array {
     return array_values(array_unique($matches[1]));
 }
 
+// 调用方在同一写事务内读取当前文章、保存快照并更新，避免并发编辑漏记版本。
+function update_article_with_revision(PDO $db, array $existing, array $next): bool {
+    $fields = ['title', 'content', 'format', 'tags', 'draft', 'images'];
+    $changed = false;
+    foreach ($fields as $field) if ((string)$existing[$field] !== (string)$next[$field]) $changed = true;
+    if (!$changed) return false;
+    $now = date(DATE_ATOM);
+    $snapshot = [$existing['id']];
+    foreach ($fields as $field) $snapshot[] = $existing[$field];
+    $snapshot[] = $existing['updated_at'];
+    $snapshot[] = $now;
+    $db->prepare('INSERT INTO article_revisions (article_id, title, content, format, tags, draft, images, updated_at, saved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute($snapshot);
+    $db->prepare('UPDATE articles SET title = ?, content = ?, format = ?, tags = ?, draft = ?, images = ?, updated_at = ? WHERE id = ?')->execute([$next['title'], $next['content'], $next['format'], $next['tags'], $next['draft'], $next['images'], $now, $existing['id']]);
+    return true;
+}
+
 function article_summary(array $article): array {
     $html = render_article($article);
     $text = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
@@ -70,4 +86,12 @@ function post_images(PDO $db, string $json): array {
         }
     }
     return $result;
+}
+
+/** 插件动态的来源身份图标：meta.avatar 存引用（up: 或插件自定义协议）时解析为图片描述符，无则 null。
+ *  前端 postHTML 据此把动态头部的头像/昵称换成来源站点身份（favicon + 名称）。 */
+function post_avatar(PDO $db, array $meta): ?array {
+    $ref = $meta['avatar'] ?? null;
+    if (!is_string($ref) || !str_contains($ref, ':')) return null;
+    return post_images($db, json_encode([$ref]))[0] ?? null;
 }

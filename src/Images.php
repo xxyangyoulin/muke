@@ -5,6 +5,8 @@ const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'imag
 const MIME_EXT = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif', 'image/avif' => 'avif'];
 
 function thumb_magick(string $input, string $output): string {
+    $rssThumb = DATA_DIR . '/rss-thumbs/' . basename($input) . '.webp';
+    if (is_file($rssThumb)) return 'cp ' . escapeshellarg($rssThumb) . ' ' . escapeshellarg(str_starts_with($output, 'webp:') ? substr($output, 5) : $output);
     $size = (int)opt('thumb_size');
     $quality = (int)opt('thumb_quality');
     // 不用 [0] 首帧语法：大图会触发 IM 无扩展名临时文件解码失败；单帧格式无需指定，动图默认取首帧
@@ -24,7 +26,17 @@ function save_uploaded_image(array $files, int $index): string {
 }
 
 function delete_image_file(string $ref): void {
-    if (str_starts_with($ref, 'up:')) @unlink(DATA_DIR . '/uploads/' . substr($ref, 3));
+    if (!preg_match('/^up:([a-f0-9]{32}\.(?:jpg|png|webp|gif|avif))$/', $ref, $match)) return;
+    global $db;
+    $name = $match[1];
+    $used = $db->prepare('SELECT 1 FROM articles WHERE images LIKE ? UNION ALL SELECT 1 FROM article_revisions WHERE images LIKE ? UNION ALL SELECT 1 FROM posts WHERE images LIKE ? LIMIT 1');
+    $used->execute(['%"' . $name . '"%', '%"' . $name . '"%', '%"up:' . $name . '"%']);
+    if (!$used->fetchColumn()) {
+        $path = DATA_DIR . '/uploads/' . $name;
+        if (is_file($path)) @unlink(DATA_DIR . '/thumbs/' . hash('sha256', $path . filemtime($path) . filesize($path)) . '.webp');
+        @unlink($path);
+        @unlink(DATA_DIR . '/rss-thumbs/' . $name . '.webp');
+    }
 }
 
 function send_image_file(string $path, ?string $downloadName = null): never {

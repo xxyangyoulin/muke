@@ -9,11 +9,18 @@ function netlify_status_read(): array {
     return is_array($data) ? $data : [];
 }
 
-/** 合并写入并盖 updated_at 心跳；state: exporting → uploading → waiting → done | error（终态保留供回看） */
+/** 合并写入并盖 updated_at 心跳；state: exporting → uploading → waiting → done | error | cancelled */
 function netlify_status_write(array $patch): array {
     $data = array_merge(netlify_status_read(), $patch, ['updated_at' => time()]);
     file_put_contents(netlify_status_path(), json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
     return $data;
+}
+
+class DeployCancelled extends RuntimeException {}
+
+function netlify_check_cancel(): void {
+    clearstatcache(true, DATA_DIR . '/deploy.cancel');
+    if (is_file(DATA_DIR . '/deploy.cancel')) throw new DeployCancelled('部署已取消');
 }
 
 /** 15 分钟无心跳的「进行中」视为僵死，允许重新发起 */
@@ -45,16 +52,32 @@ function netlify_deploy_run(PDO $db, ?array $pending = null): bool {
         return false;
     }
     try {
-        netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
+        if ($pending !== null || !in_array(netlify_status_read()['state'] ?? '', ['exporting', 'uploading', 'waiting'], true)) @unlink(DATA_DIR . '/deploy.cancel');
+        netlify_check_cancel();
+        netlify_status_write(['deploy_id' => '', 'state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
         echo '导出静态站点…' . PHP_EOL;
-        $result = export_site($db);
+        $result = export_site($db, 'netlify_check_cancel');
+        netlify_check_cancel();
         netlify_status_write(['posts' => (int)$result['posts'], 'plugins' => $result['plugins']]);
         echo "已导出 {$result['posts']} 条动态及插件内容，开始上传…" . PHP_EOL;
         $settings = settings($db);
         $url = netlify_deploy((string)$settings['netlify_token'], (string)$settings['netlify_site'], fn(array $patch) => netlify_status_write($patch));
+        netlify_check_cancel();
         netlify_status_write(['state' => 'done', 'url' => $url]);
         echo "部署完成：{$url}" . PHP_EOL;
         return true;
+    } catch (DeployCancelled $e) {
+        $deployId = netlify_status_read()['deploy_id'] ?? '';
+        $error = '';
+        if ($deployId !== '') {
+            try {
+                [$status] = netlify_request((string)opt('netlify_token'), 'POST', 'https://api.netlify.com/api/v1/deploys/' . rawurlencode($deployId) . '/cancel', null, 'application/json', 15, false);
+                if ($status >= 400) $error = '本地部署已停止，远端取消未成功，请检查 Netlify 状态';
+            } catch (Throwable $remoteError) { $error = '本地部署已停止，远端取消失败：' . $remoteError->getMessage(); }
+        }
+        netlify_status_write(['state' => 'cancelled', 'current' => '', 'error' => $error]);
+        echo '部署已取消' . PHP_EOL;
+        return false;
     } catch (Throwable $e) {
         netlify_status_write(['state' => 'error', 'error' => $e->getMessage()]);
         fwrite(STDERR, '部署失败：' . $e->getMessage() . PHP_EOL);
@@ -106,12 +129,20 @@ function auto_deploy_watcher_alive(): bool {
 }
 
 /** 传输层失败重试 6 次；GET/PUT 幂等，HTTP 5xx 亦重试（大文件长传时 Netlify 偶发 502/504） */
-function netlify_request(string $token, string $method, string $url, ?string $body = null, string $contentType = 'application/json', int $timeout = 600): array {
+function netlify_request(string $token, string $method, string $url, ?string $body = null, string $contentType = 'application/json', int $timeout = 600, bool $cancellable = true): array {
     for ($attempt = 1; ; $attempt++) {
+        if ($cancellable) netlify_check_cancel();
         $ch = curl_init($url);
         $headers = ['Authorization: Bearer ' . $token];
         if ($body !== null) $headers[] = 'Content-Type: ' . $contentType;
         $options = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers, CURLOPT_POSTFIELDS => $body ?? '', CURLOPT_TIMEOUT => $timeout];
+        if ($cancellable) {
+            $options[CURLOPT_NOPROGRESS] = false;
+            $options[CURLOPT_XFERINFOFUNCTION] = static function (): int {
+                clearstatcache(true, DATA_DIR . '/deploy.cancel');
+                return is_file(DATA_DIR . '/deploy.cancel') ? 1 : 0;
+            };
+        }
         $proxy = (string)config('http_proxy');
         if ($proxy !== '') $options[CURLOPT_PROXY] = $proxy;
         curl_setopt_array($ch, $options);
@@ -119,12 +150,16 @@ function netlify_request(string $token, string $method, string $url, ?string $bo
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_error($ch);
         curl_close($ch);
+        if ($cancellable && !($method === 'POST' && $response !== false && $status >= 200 && $status < 300)) netlify_check_cancel();
         if ($response !== false && $status > 0 && ($status < 500 || $method === 'POST' || $attempt >= 6)) {
             $data = json_decode((string)$response, true);
             return [$status, is_array($data) ? $data : []];
         }
         if ($response === false && $attempt >= 6) throw new RuntimeException('无法连接 Netlify：' . ($error ?: '网络异常'));
-        sleep(min($attempt * 3, 15));
+        for ($wait = 0; $wait < min($attempt * 3, 15); $wait++) {
+            if ($cancellable) netlify_check_cancel();
+            sleep(1);
+        }
     }
 }
 
@@ -137,6 +172,8 @@ function netlify_deploy(string $token, string $site, ?callable $progress = null)
     if (!$files) throw new RuntimeException('dist 目录为空，请先导出静态站点');
     [$status, $deploy] = netlify_request($token, 'POST', "https://api.netlify.com/api/v1/sites/{$site}/deploys", json_encode(['files' => $files]));
     if ($status >= 400) throw new RuntimeException($deploy['message'] ?? "创建部署失败（HTTP {$status}）");
+    if ($progress) $progress(['deploy_id' => $deploy['id']]);
+    netlify_check_cancel();
     $required = array_fill_keys($deploy['required'] ?? [], true);
     $total = count(array_filter($files, fn($sha1) => isset($required[$sha1])));
     if ($total === 0) {
