@@ -18,6 +18,10 @@ function netlify_status_write(array $patch): array {
 
 /** 15 分钟无心跳的「进行中」视为僵死，允许重新发起 */
 function netlify_deploy_running(): bool {
+    $lock = fopen(DATA_DIR . '/deploy.lock', 'c');
+    $busy = !flock($lock, LOCK_EX | LOCK_NB);
+    fclose($lock);
+    if ($busy) return true;
     $status = netlify_status_read();
     return in_array($status['state'] ?? '', ['exporting', 'uploading', 'waiting'], true)
         && time() - (int)($status['updated_at'] ?? 0) < 900;
@@ -29,15 +33,20 @@ function deploy_spawn(string $script): void {
     $cmd = sprintf(<<<'SH'
 cd %s && { for n in /proc/self/fd/*; do fd=${n##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec %s %s >> %s 2>&1 < /dev/null; } &
 SH
-        , escapeshellarg($root), escapeshellarg(PHP_BINARY), escapeshellarg($script), escapeshellarg(DATA_DIR . '/deploy.log'));
+        , escapeshellarg($root), escapeshellarg(PHP_SAPI === 'fpm-fcgi' ? PHP_BINDIR . '/php' : PHP_BINARY), escapeshellarg($script), escapeshellarg(DATA_DIR . '/deploy.log'));
     exec($cmd);
 }
 
 /** 执行完整部署（导出 → 摘要上传 → 状态落盘），后台手动部署与自动部署共用；返回是否成功 */
-function netlify_deploy_run(PDO $db): bool {
-    netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
-    echo '导出静态站点…' . PHP_EOL;
+function netlify_deploy_run(PDO $db, ?array $pending = null): bool {
+    $lock = fopen(DATA_DIR . '/deploy.lock', 'c');
+    if (!flock($lock, LOCK_EX | LOCK_NB)) {
+        fclose($lock);
+        return false;
+    }
     try {
+        netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
+        echo '导出静态站点…' . PHP_EOL;
         $result = export_site($db);
         netlify_status_write(['posts' => (int)$result['posts'], 'plugins' => $result['plugins']]);
         echo "已导出 {$result['posts']} 条动态及插件内容，开始上传…" . PHP_EOL;
@@ -50,6 +59,10 @@ function netlify_deploy_run(PDO $db): bool {
         netlify_status_write(['state' => 'error', 'error' => $e->getMessage()]);
         fwrite(STDERR, '部署失败：' . $e->getMessage() . PHP_EOL);
         return false;
+    } finally {
+        if ($pending !== null) auto_deploy_pending_clear($pending);
+        flock($lock, LOCK_UN);
+        fclose($lock);
     }
 }
 
@@ -58,15 +71,29 @@ function netlify_deploy_run(PDO $db): bool {
 function auto_deploy_pending_path(): string { return DATA_DIR . '/deploy.pending.json'; }
 
 function auto_deploy_pending_read(): array {
+    $lock = fopen(DATA_DIR . '/deploy.pending.lock', 'c');
+    flock($lock, LOCK_SH);
     $data = is_file(auto_deploy_pending_path()) ? json_decode((string)file_get_contents(auto_deploy_pending_path()), true) : [];
+    fclose($lock);
     return is_array($data) ? $data : [];
+}
+
+function auto_deploy_pending_clear(?array $expected = null): void {
+    $lock = fopen(DATA_DIR . '/deploy.pending.lock', 'c');
+    flock($lock, LOCK_EX);
+    $current = is_file(auto_deploy_pending_path()) ? json_decode((string)file_get_contents(auto_deploy_pending_path()), true) : [];
+    if ($expected === null || $current === $expected) @unlink(auto_deploy_pending_path());
+    fclose($lock);
 }
 
 /** 新动态触碰：开关开启且凭据齐备时顺延到期时间，并确保 watcher 存活（编辑动态不触发） */
 function auto_deploy_touch(PDO $db): void {
     if (opt('auto_deploy') !== '1' || (string)opt('netlify_token') === '' || (string)opt('netlify_site') === '') return;
     $minutes = max(1, min(1440, (int)opt('auto_deploy_debounce')));
-    file_put_contents(auto_deploy_pending_path(), json_encode(['due_at' => time() + $minutes * 60, 'touched_at' => time()]), LOCK_EX);
+    $lock = fopen(DATA_DIR . '/deploy.pending.lock', 'c');
+    flock($lock, LOCK_EX);
+    file_put_contents(auto_deploy_pending_path(), json_encode(['due_at' => time() + $minutes * 60, 'touched_at' => time(), 'id' => bin2hex(random_bytes(16))]));
+    fclose($lock);
     if (!auto_deploy_watcher_alive()) deploy_spawn(dirname(__DIR__) . '/bin/auto-deploy.php');
 }
 

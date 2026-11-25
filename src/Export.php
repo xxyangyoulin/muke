@@ -304,7 +304,7 @@ function export_bake_pages(array &$ctx): void {
                 } else {
                     $postBody = '<p class="post-content">' . $escape($post['content']) . '</p>' . ($images ? '<div class="post-images count' . count($post['images']) . '">' . $images . '</div>' : '');
                 }
-                $body .= '<article class="post" id="post-' . $post['id'] . '"><div><strong>' . $escape($profile['name']) . '</strong>' . $postBody . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
+                $body .= '<article class="post" id="post-' . $post['id'] . '" data-source="' . $escape($post['source'] ?? '') . '"><div><strong>' . $escape($profile['name']) . '</strong>' . $postBody . '<time>' . $escape(date_short_label($post['created_at'])) . '</time></div></article>';
             }
             if (!$feed) $body .= '<div class="empty-state"><h3>故事，从这一刻开始</h3><p>记录日常的微小瞬间，收集值得停留的风景。</p></div>';
             $body .= '</div></section>';

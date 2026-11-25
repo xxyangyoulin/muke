@@ -33,9 +33,10 @@ function api_save_plugin(PDO $db, array $input, string $action, bool $admin): ne
     $plugin = plugin_list()[$id] ?? null;
     if (!$plugin) json_response(['error' => '插件不存在'], 404);
     $values = (array)($input['values'] ?? []);
+    if (!empty($input['enabled'])) $values = array_replace(plugin_config($db, $id), $values);
     $changes = [];
     foreach ($plugin['fields'] ?? [] as $field) {
-        // 只处理提交了的字段：纯开关请求（values 为空）不做字段校验，也不清空已保存配置
+        // 启用时校验合并后的完整配置；其他请求只处理提交的字段。
         if (!array_key_exists($field['key'], $values)) continue;
         $key = plugin_setting_key($plugin, $field['key']);
         $raw = trim((string)($values[$field['key']] ?? ''));
@@ -103,6 +104,7 @@ function api_sync_plugin(PDO $db, array $input, string $action, bool $admin): ne
     try {
         $items = ($plugin['sync'])($db, $config, ['all' => !empty($input['all'])]);
         $added = plugin_sync_items($db, $id, $items);
+        if ($added > 0) auto_deploy_touch($db);
         if (isset($plugin['after_sync']) && is_callable($plugin['after_sync'])) ($plugin['after_sync'])($db, $items);
         save_setting($db, "plugin:{$id}:last_sync", (string)time());
         save_setting($db, "plugin:{$id}:last_error", '');

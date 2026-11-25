@@ -143,7 +143,8 @@ function maybe_sync_plugins(PDO $db): void {
         save_setting($db, "plugin:{$id}:last_sync", (string)time());
         try {
             $items = ($plugin['sync'])($db, $config);
-            plugin_sync_items($db, $id, $items);
+            $added = plugin_sync_items($db, $id, $items);
+            if ($added > 0) auto_deploy_touch($db);
             if (isset($plugin['after_sync']) && is_callable($plugin['after_sync'])) ($plugin['after_sync'])($db, $items);
             save_setting($db, "plugin:{$id}:last_error", '');
         } catch (Throwable $e) {
@@ -176,7 +177,7 @@ function dispatch_plugin_sync(PDO $db): void {
     $stamp = DATA_DIR . '/plugin.dispatch.stamp';
     if (is_file($stamp) && time() - filemtime($stamp) < 30) return;
     @touch($stamp);
-    @exec(sprintf('nohup %s %s >/dev/null 2>&1 &', escapeshellarg(PHP_BINARY), escapeshellarg(dirname(__DIR__) . '/bin/sync.php')));
+    @exec(sprintf('nohup %s %s >/dev/null 2>&1 &', escapeshellarg(PHP_SAPI === 'fpm-fcgi' ? PHP_BINDIR . '/php' : PHP_BINARY), escapeshellarg(dirname(__DIR__) . '/bin/sync.php')));
 }
 
 /** 事件总线：插件经 'hooks' => ['事件名' => fn(array $payload)] 订阅核心生命周期。

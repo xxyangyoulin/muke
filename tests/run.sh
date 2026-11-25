@@ -66,6 +66,9 @@ echo "== 插件契约 =="
 mkdir -p "$SBOX/plugins/contract"
 cp "$ROOT/tests/fixtures/plugin.php" "$SBOX/plugins/contract/plugin.php"
 "$PHP" "$ROOT/tests/plugin-contract.php" "$SBOX"
+"$PHP" "$ROOT/tests/dms-plugin.php" "$SBOX"
+"$PHP" "$ROOT/tests/deploy-sync.php" "$SBOX"
+"$PHP" "$ROOT/tests/sync-scheduler.php" "$SBOX" auto-deploy-test
 "$PHP" "$ROOT/tests/backup-export.php" "$SBOX"
 
 echo "== 无插件导出 =="

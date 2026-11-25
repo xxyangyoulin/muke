@@ -27,9 +27,7 @@ PHP + SQLite 的个人动态 / 文章 / 壁纸收藏站。零框架、零构建�
 # 1. 环境自检
 php bin/check.php
 
-# 2. 启动（PM2）
-pm2 start ecosystem.config.cjs && pm2 save
-# 或裸 PHP：
+# 2. 本地临时预览（正式运行使用下文的 Nginx + PHP-FPM）
 php -S 127.0.0.1:8765 -d upload_max_filesize=16M -d post_max_size=68M -t public public/index.php
 
 # 3. 打开后台建号（默认仅允许本机来源）
@@ -39,6 +37,27 @@ php -S 127.0.0.1:8765 -d upload_max_filesize=16M -d post_max_size=68M -t public 
 Docker：`docker compose up -d`（挂载 `var/` 与壁纸目录）。
 
 生产环境使用 PHP-FPM 配合 Nginx/Apache，将文档根指向 `public/`，不存在的路由转发给 `public/index.php`；PHP 内置服务器用于本地运行。Docker 首次建号可通过 SSH 转发或临时设置精确的 `MKBLOG_SETUP_HOSTS` 来源地址，建号后撤销放行；不要长期设置为 `*`。
+
+### Nginx Web + PM2 后台任务
+
+Web 使用 Nginx + PHP-FPM 多进程处理请求；PM2 只守护后台同步，不再启动 PHP 内置 Web 服务器。配置 Nginx 时只允许入口 `public/index.php` 交给 FPM 执行，禁止上传目录中的 PHP 执行；Nginx 请求体上限设为 `68m`，PHP 的 `upload_max_filesize` / `post_max_size` 分别设为 `16M` / `68M`。
+
+以站点运行用户执行：
+
+```sh
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+# 首次配置时，执行 pm2 startup 输出的 sudo 命令以启用开机恢复
+pm2 status
+pm2 logs mkblog-sync --lines 50
+```
+
+`MKBLOG_NAME` 可修改进程名前缀（默认 `mkblog`），`PHP_BIN` 可指定 PHP CLI（默认 `/usr/bin/php`）。PHP-FPM 与后台进程需使用相同配置和文件访问权限；不要将 `PHP_BIN` 指向 `php-fpm`。升级代码后执行 `pm2 restart mkblog-sync`；已有旧版 PM2 Web 进程时，先确认其名称，再执行 `pm2 delete mkblog`，避免与 Nginx 抢占端口。
+
+当前本机站点使用 `http://127.0.0.1:8765`，Nginx 配置为 `/etc/nginx/mkblog.conf`，FPM 专用池为 `/etc/php/php-fpm.d/mkblog.conf`，Web 服务名为 `nginx-mkblog`。修改本机 Nginx 配置后执行 `sudo nginx -t -c /etc/nginx/mkblog.conf && sudo systemctl reload nginx-mkblog`。这些是本机配置路径，其他服务器应按实际环境配置，不由 PM2 创建。
+
+本机 `pm2-yyl.service` 已启用，使用 oneshot 开机恢复方式（现有 PM2 未提供标准 PID 文件）；任务重启由 PM2 管理。日常使用 `pm2 restart mkblog-sync`，不要为重启同步而重启整个 PM2 服务，以免影响同一用户下的其他应用。
 
 ## 版本与项目安装包发布
 
@@ -77,11 +96,31 @@ git push origin v0.1.0
 
 ## 插件
 
-`plugins/` 目录下的插件提供内容源与页面，后台「动态插件」页签管理（开关 / 配置 / 同步 / 清空 / 移除）。内置豆瓣、微博（RSSHub）、壁纸三个参考实现，分别演示内容同步、自定义卡片、整页路由、数据端点、上传、图片服务与静态导出。壁纸专属默认配置与环境变量声明位于其 `plugin.php`。
+`plugins/` 目录下的插件提供内容源与页面，后台「动态插件」页签管理（开关 / 配置 / 同步 / 清空 / 移除）。内置豆瓣、微博（RSSHub）、壁纸和[桌面更新日志（DMS）](plugins/dms/README.md)，分别覆盖内容同步、自定义卡片、整页路由、数据端点、上传、图片服务、本地桌面版本检测与静态导出。壁纸专属默认配置与环境变量声明位于其 `plugin.php`。
 
 开发自己的插件见 **[docs/plugins.md](docs/plugins.md)**，架构与数据流见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
 
 删除语义：手动删除插件同步的动态会留墓碑（不再同步回来）；壁纸源文件删除则清动态、文件回归可重发。
+
+启用插件时会校验已有配置与本次输入合并后的完整配置；缺少必填项时拒绝启用，不会部分保存。停用不要求补齐配置。
+
+### 独立定时同步
+
+`pm2 start ecosystem.config.cjs` 只启动独立的 `mkblog-sync` 后台进程，网站由 Nginx + PHP-FPM 提供；`docker compose up -d --build` 则同时启动容器网站和 `sync` 服务。同步进程每轮检查后等待 30 秒，各插件仍遵循自己的同步间隔，设置为 0 的壁纸插件只允许手动同步。无需访客访问页面，进程退出由 PM2 / Docker 自动重启；PM2 开机恢复需要同时完成 `pm2 save` 和 `pm2 startup` 配置。
+
+其他运行方式可执行 `php bin/sync.php --watch` 并交由进程管理器管理，或使用 cron 每分钟运行一次：
+
+```cron
+* * * * * /usr/bin/php /absolute/path/mkblog/bin/sync.php
+```
+
+同步进程应与网站使用相同的用户、配置、数据目录和壁纸目录。页面触发与独立同步共用文件锁，不会同时执行同步。PM2 日志位于 `var/sync-out.log`、`var/sync-error.log`；Docker 可用 `docker compose logs sync` 查看。
+
+开启自动部署且配置 Netlify 后，壁纸上传、删除、目录扫描发现变更，以及插件同步新增动态都会启动防抖计时；没有内容变化的同步不会反复延后部署。手动和自动部署共用全程文件锁，冲突任务不会覆盖正在执行的部署状态。
+
+自动部署结束时只清理本次处理的待办；部署期间产生的新更新会保留，并按新的防抖到期时间继续部署。
+
+后台同步进程还会检查遗留的待部署记录：如果重启导致部署等待进程消失，会重新启动它并沿用原定到期时间，无需访问网页。部署等待进程仍按需启动，不是单独的 PM2 常驻项；已执行失败并清除待办的部署不会自动重试。
 
 ## 备份与安全
 

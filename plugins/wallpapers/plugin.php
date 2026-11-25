@@ -66,11 +66,14 @@ $wall_sync = function (PDO $db) use ($wall_scan, $wall_enabled, $wall_forget): a
         foreach ($db->query('SELECT id, mtime, post_id FROM wallpapers')->fetchAll(PDO::FETCH_ASSOC) as $row) $known[$row['id']] = $row;
         $insert = $db->prepare('INSERT INTO wallpapers (id, path, name, width, height, bytes, mtime) VALUES (?, ?, ?, ?, ?, ?, ?)');
         $update = $db->prepare('UPDATE wallpapers SET path = ?, name = ?, width = ?, height = ?, bytes = ?, mtime = ? WHERE id = ?');
+        $changed = false;
         foreach ($scanned as $wall) {
             if (!isset($known[$wall['id']])) {
                 $insert->execute([$wall['id'], $wall['path'], $wall['name'], $wall['width'], $wall['height'], $wall['bytes'], $wall['mtime']]);
+                $changed = true;
             } elseif ((int)$known[$wall['id']]['mtime'] !== $wall['mtime']) {
                 $update->execute([$wall['path'], $wall['name'], $wall['width'], $wall['height'], $wall['bytes'], $wall['mtime'], $wall['id']]);
+                $changed = true;
             }
         }
         $present = array_fill_keys(array_column($scanned, 'id'), true);
@@ -78,7 +81,9 @@ $wall_sync = function (PDO $db) use ($wall_scan, $wall_enabled, $wall_forget): a
             if (isset($present[$id])) continue;
             // 批量动态保留其余图片；最后一张消失时才删除动态。
             $wall_forget($db, $id);
+            $changed = true;
         }
+        if ($changed) auto_deploy_touch($db);
         return $scanned;
     } finally {
         if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
@@ -255,6 +260,7 @@ return [
                 flock($syncLock, LOCK_UN); fclose($syncLock);
             }
             foreach ($events as $event) plugin_fire('post.saved', $event);
+            auto_deploy_touch($db);
             return ['uploaded' => $uploaded];
         }
         if ($op !== 'delete') throw new InvalidArgumentException('操作无效');
@@ -290,6 +296,7 @@ return [
             flock($syncLock, LOCK_UN); fclose($syncLock);
         }
         if ($staged !== null) unlink($staged);
+        auto_deploy_touch($db);
         return ['deleted' => $wall['name'], 'deleted_posts' => $deletedPosts];
     },
 

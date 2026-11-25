@@ -171,7 +171,7 @@ function api_save_settings(PDO $db, array $input, string $action, bool $admin): 
         $ad = (string)$input['auto_deploy'];
         if (!in_array($ad, ['0', '1'], true)) json_response(['error' => '自动部署取值无效'], 422);
         save_setting($db, 'auto_deploy', $ad);
-        if ($ad === '0') @unlink(auto_deploy_pending_path()); // 关闭即取消排队中的自动任务
+        if ($ad === '0') auto_deploy_pending_clear(); // 关闭即取消排队中的自动任务
         $saved++;
     }
     if (array_key_exists('auto_deploy_debounce', $input)) {
@@ -259,10 +259,18 @@ function api_netlify_save(PDO $db, array $input, string $action, bool $admin): n
 function api_netlify_deploy(PDO $db, array $input, string $action, bool $admin): never {
     $settings = settings($db);
     if (empty($settings['netlify_site']) || empty($settings['netlify_token'])) json_response(['error' => '请先填写并保存 Netlify 令牌和站点 ID'], 422);
-    if (netlify_deploy_running()) json_response(['error' => '已有部署正在进行，请等待完成后再发起'], 409);
-    // 先落「进行中」占位再派生：双击与并发请求一律被上面的检查挡住；任务进程随后覆写完整进度
-    netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
-    @unlink(auto_deploy_pending_path()); // 手动部署内容已是最新，取消排队中的自动任务
+    $lock = fopen(DATA_DIR . '/deploy.lock', 'c');
+    if (!flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); json_response(['error' => '已有部署正在进行，请等待完成后再发起'], 409); }
+    $status = netlify_status_read();
+    if (in_array($status['state'] ?? '', ['exporting', 'uploading', 'waiting'], true) && time() - (int)($status['updated_at'] ?? 0) < 900) {
+        fclose($lock);
+        json_response(['error' => '已有部署正在进行，请等待完成后再发起'], 409);
+    }
+    // 持锁写入启动占位；子进程再持有同一把锁直到部署结束。
+    try {
+        netlify_status_write(['state' => 'exporting', 'started_at' => time(), 'files_total' => 0, 'files_done' => 0, 'current' => '', 'url' => '', 'error' => '']);
+        auto_deploy_pending_clear(); // 手动部署内容已是最新，取消排队中的自动任务
+    } finally { fclose($lock); }
     deploy_spawn(dirname(__DIR__, 2) . '/bin/deploy-netlify.php');
     json_response(['ok' => true]);
 }

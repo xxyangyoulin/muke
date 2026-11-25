@@ -10,11 +10,10 @@ while (true) {
     $due = (int)($pending['due_at'] ?? 0);
     if ($due <= 0) break;                                        // 无待办（被手动部署/关闭开关清除）
     if (time() < $due) { sleep(min(30, $due - time())); continue; }
-    if (opt('auto_deploy') !== '1') break;                        // 到期时开关已关：放弃
+    if (opt('auto_deploy') !== '1') { auto_deploy_pending_clear($pending); break; }
     if (netlify_deploy_running()) { sleep(60); continue; }        // 手动部署在跑：等它结束再上
-    if ((string)opt('netlify_token') === '' || (string)opt('netlify_site') === '') break; // 凭据被清：放弃
-    netlify_deploy_run($db);                                      // 状态落盘与手动部署一致
-    break;                                                        // 成败都清 pending：失败不重试，下次动态再触发
+    if ((string)opt('netlify_token') === '' || (string)opt('netlify_site') === '') { auto_deploy_pending_clear($pending); break; }
+    // 只清理本次处理的待办；部署期间的新更新继续按其到期时间执行。
+    netlify_deploy_run($db, $pending);
 }
-@unlink(auto_deploy_pending_path());
 @unlink(DATA_DIR . '/deploy.watcher.pid');

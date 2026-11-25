@@ -140,7 +140,7 @@ function renderGalleryPage() {
  wstate.shown = batchSize();
  const total = wstate.items.length;
  const ultra = wstate.items.filter(isUltra).length;
- store.main.innerHTML = `<div class="gallery-page"><div class="gallery-hero"><h1>壁纸收藏<span>。</span></h1><p>${store.isStatic ? '精选风景已随站点打包，可在线预览、下载原图。' : '本地壁纸目录自动同步，可在线预览、下载原图。'}</p><div class="gallery-facts"><span><strong id="wall-total">${total}</strong> 张壁纸</span>${ultra ? `<span><strong>${ultra}</strong> 张 4K 超清</span>` : ''}</div></div><div class="gallery-toolbar"><div class="filter-pills"><button type="button" data-filter="all" class="active">全部</button><button type="button" data-filter="landscape">横屏</button><button type="button" data-filter="portrait">竖屏</button><button type="button" data-filter="4k">4K 超清</button></div><div class="gallery-tools"><label class="gallery-search">${SEARCH_SVG}<input id="gallery-search" type="text" placeholder="搜索壁纸" aria-label="搜索壁纸"></label>${!store.isStatic && store.state.admin ? `<button class="text-link" id="refresh-gallery" type="button">${icon('refresh')}同步</button>` : ''}</div></div><div id="gallery-results"></div></div>`;
+ store.main.innerHTML = `<div class="gallery-page"><div class="gallery-hero"><h1>壁纸收藏<span>。</span></h1><p>${store.isStatic ? '精选风景已随站点打包，可在线预览、下载原图。' : '本地壁纸目录自动同步，可在线预览、下载原图。'}</p><div class="gallery-facts"><span><strong id="wall-total">${total}</strong> 张壁纸</span>${ultra ? `<span><strong>${ultra}</strong> 张 4K 超清</span>` : ''}</div></div><div class="gallery-toolbar"><div class="filter-pills"><button type="button" data-filter="all" class="active">全部</button><button type="button" data-filter="landscape">横屏</button><button type="button" data-filter="portrait">竖屏</button><button type="button" data-filter="4k">4K 超清</button></div><div class="gallery-tools"><label class="gallery-search">${SEARCH_SVG}<input id="gallery-search" type="text" placeholder="搜索壁纸" aria-label="搜索壁纸"></label>${!store.isStatic && store.state.admin ? `<div class="gallery-actions"><button class="text-link" id="refresh-gallery" type="button">${icon('refresh')}同步</button></div>` : ''}</div></div><div id="gallery-results"></div></div>`;
  document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { wstate.filter = b.dataset.filter; wstate.shown = batchSize(); document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('active', x === b)); renderGallery(); });
  document.querySelector('#gallery-search').oninput = e => { wstate.query = e.target.value.trim().toLowerCase(); wstate.shown = batchSize(); renderGallery(); };
  const refresh = document.querySelector('#refresh-gallery');
@@ -149,7 +149,7 @@ function renderGalleryPage() {
   refresh.onclick = async () => { try { await api('sync-plugin', { id: ID }); await refreshWallpapers(); updateGalleryData(); toast('壁纸已同步'); } catch (e) { toast(e.message); } };
  }
  if (store.state.admin && !store.isStatic) {
-  document.querySelector('.gallery-tools').insertAdjacentHTML('beforeend', `<button class="text-link" id="upload-wallpaper" type="button">${icon('plus')}上传壁纸</button><input id="wallpaper-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple hidden>`);
+  document.querySelector('.gallery-actions').insertAdjacentHTML('beforeend', `<button class="text-link" id="upload-wallpaper" type="button">${icon('plus')}上传</button><input id="wallpaper-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple hidden>`);
   const upload = document.querySelector('#upload-wallpaper');
   const picker = document.querySelector('#wallpaper-file');
   upload.onclick = () => picker.click();
@@ -173,7 +173,7 @@ function renderGalleryPage() {
     await refreshWallpapers();
     store.posts = (await api('posts')).posts;
    } catch (e) { toast(e.message); }
-   finally { upload.disabled = false; upload.innerHTML = `${icon('plus')}上传壁纸`; picker.value = ''; }
+   finally { upload.disabled = false; upload.innerHTML = `${icon('plus')}上传`; picker.value = ''; }
   };
  }
  renderGallery();

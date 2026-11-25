@@ -1,5 +1,14 @@
 /* 壁纸收藏插件 · 占满宽度的 X 风格瀑布流图库 + 首页侧栏小组件（自包含，token 取自核心 style.css） */
 
+/* 壁纸动态：单图完整展示，多图使用三列裁切卡片。 */
+.post[data-source="wallpapers"] .post-images{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:flex-start;width:100%}
+.post[data-source="wallpapers"] .post-image{height:auto;max-width:100%;min-width:0;flex:0 1 auto}
+.post[data-source="wallpapers"] .post-image img{width:auto;height:auto;max-width:100%;max-height:360px;object-fit:contain}
+.post[data-source="wallpapers"] .post-image:hover img{transform:none}
+.post[data-source="wallpapers"] .post-images:not(.count1){display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.post[data-source="wallpapers"] .post-images:not(.count1) .post-image{width:100%;aspect-ratio:1;align-items:center;border-radius:14px}
+.post[data-source="wallpapers"] .post-images:not(.count1) .post-image img{width:100%;height:100%;max-height:100%;object-fit:cover}
+
 /* ---- 首页右栏小组件 ---- */
 .mini-gallery{background:#fff;border:1px solid var(--line);border-radius:16px;padding:0 0 8px}
 .mini-gallery .section-heading{padding:13px 16px 0}
@@ -24,10 +33,11 @@
 .filter-pills button{padding:7px 16px;border:1px solid var(--field);border-radius:999px;background:#fff;font-size:13px;font-weight:600;color:var(--ink)}
 .filter-pills button:hover{background:var(--hover)}
 .filter-pills button.active{background:var(--ink);border-color:var(--ink);color:#fff}
-.gallery-tools{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
-.gallery-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:1px solid #cfd9de;border-radius:20px;background:#fff;flex:0 1 260px;min-width:150px}
+.gallery-tools{display:flex;align-items:center;gap:10px;min-width:0}
+.gallery-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;white-space:nowrap}
+.gallery-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:1px solid #cfd9de;border-radius:20px;background:#fff;flex:0 1 260px;min-width:0}
 .gallery-search svg{width:17px;height:17px;color:var(--muted);flex-shrink:0}
-.gallery-search input{border:0;outline:0;background:transparent;width:100%;font-size:14px}
+.gallery-search input{border:0;outline:0;background:transparent;width:100%;min-width:0;font-size:14px}
 .gallery-search input::placeholder{color:var(--muted)}
 .gallery-search:focus-within{border-color:#cfd9de}
 .gallery-search input:focus{box-shadow:none;border-color:transparent}
