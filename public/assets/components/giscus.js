@@ -69,7 +69,7 @@ export function mountGiscus(kind, id, host, options) {
  const params = new URLSearchParams({
   repo: options.giscus_repo, repoId: options.giscus_repo_id, categoryId: options.giscus_category_id,
   term: `${kind}:${id}`, strict: '1', theme: 'light', reactionsEnabled: '1', emitMetadata: '1',
-  inputPosition: 'top', origin: page.href, backLink: page.href,
+  inputPosition: 'bottom', origin: page.href, backLink: page.href,
  });
  if (session) params.set('session', session);
  const panel = document.createElement('div');

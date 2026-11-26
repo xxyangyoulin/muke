@@ -174,7 +174,7 @@ function comments_iframe_html(string $kind, int $id): string {
     $p = comment_provider();
     if ($p === 'giscus') {
         if (!(string)opt('giscus_repo') || !(string)opt('giscus_repo_id') || !(string)opt('giscus_category_id')) return '';
-        $query = http_build_query(['repo' => (string)opt('giscus_repo'), 'repoId' => (string)opt('giscus_repo_id'), 'categoryId' => (string)opt('giscus_category_id'), 'term' => $kind . ':' . $id, 'strict' => '1', 'theme' => 'light', 'reactionsEnabled' => '1', 'inputPosition' => 'top'], '', '&', PHP_QUERY_RFC3986);
+        $query = http_build_query(['repo' => (string)opt('giscus_repo'), 'repoId' => (string)opt('giscus_repo_id'), 'categoryId' => (string)opt('giscus_category_id'), 'term' => $kind . ':' . $id, 'strict' => '1', 'theme' => 'light', 'reactionsEnabled' => '1', 'inputPosition' => 'bottom'], '', '&', PHP_QUERY_RFC3986);
         return '<div class="panel comments-panel embed-host"><iframe class="comment-embed" src="https://giscus.app/zh-CN/widget?' . h($query) . '" title="giscus 评论" loading="lazy" allow="clipboard-write"></iframe></div>';
     }
     if ($p === 'custom') {
