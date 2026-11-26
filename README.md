@@ -106,6 +106,8 @@ git push origin v0.3.0
 
 开发自己的插件见 **[docs/plugins.md](docs/plugins.md)**，架构与数据流见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
 
+后续前后端分离、简化安装与统一后台任务的迁移安排见 [Rust 重构计划](docs/rust-rebuild-plan.md)（规划阶段）。
+
 删除语义：手动删除插件同步的动态会留墓碑（不再同步回来）；壁纸源文件删除则清动态、文件回归可重发。
 
 启用插件时会校验已有配置与本次输入合并后的完整配置；缺少必填项时拒绝启用，不会部分保存。停用不要求补齐配置。
