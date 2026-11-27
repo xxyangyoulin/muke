@@ -1,20 +1,29 @@
 # MUKE（Rust 版）安装与升级
 
-Rust 版是一个单二进制服务（内嵌数据库迁移与网络栈，静态链接 curl/OpenSSL），运行时只依赖系统 `magick`（ImageMagick）。PHP 版的完整功能对等说明见 [rust-prototype.md](rust-prototype.md)。
+Rust 版是一个单二进制服务（内嵌数据库迁移与网络栈，静态链接 curl/OpenSSL），媒体处理依赖系统 `magick`（ImageMagick）。PHP 版的功能对等说明见仓库中的 [Rust 实现记录](https://github.com/xxyangyoulin/muke/blob/master/docs/rust-prototype.md)。
 
 ## 安装（Linux x86_64 / aarch64）
 
-1. 解压发行包并自检：
+GitHub Release 二进制在 Ubuntu 24.04 原生构建，需要 glibc 2.39 或更高版本。较旧系统可在本机编译，或从源码使用 `Dockerfile.rust` 构建镜像。
+
+先安装 ImageMagick：Arch 使用 `sudo pacman -S imagemagick`；Debian/Ubuntu 使用 `sudo apt install imagemagick`。ImageMagick 6 仅提供 `convert` 时，创建命令链接：
+
+```sh
+if ! command -v magick >/dev/null; then
+  sudo ln -s "$(command -v convert)" /usr/local/bin/magick
+fi
+```
+
+1. 从 [GitHub Releases](https://github.com/xxyangyoulin/muke/releases) 下载对应架构的 tar.gz 与 `SHA256SUMS`，校验、解压并自检：
 
    ```sh
+   sha256sum --ignore-missing -c SHA256SUMS
    tar xzf muke-<版本>-<架构>.tar.gz
    cd muke-<版本>
    ./muke check          # 校验 magick、数据目录可写、前端与插件资源齐备
    ```
 
-   缺少的依赖按提示安装：Arch `pacman -S imagemagick`；Debian/Ubuntu `apt install imagemagick`。
-
-2. 准备配置（参考包内 `muke.toml.example`）：`listen`、`data_dir`（数据库与上传图片）、`frontend`（包内 `frontend/` 目录）、`export_dir`（静态导出目录）。站点级设置（名称、评论、部署凭据等）登录后台修改，存数据库。
+2. 复制包内 `muke.toml.example` 为 `muke.toml`，修改配置中的安装路径：`listen`、`data_dir`（数据库与上传图片）、`frontend`（包内 `frontend/` 目录）、`export_dir`（静态导出目录）。站点级设置（名称、评论、部署凭据等）登录后台修改，存数据库。
 
 3. 启动并建号：
 
@@ -68,4 +77,6 @@ docker run -d -p 8785:8785 \
 
 ## 升级（Rust → Rust）
 
-替换二进制与 `frontend/`、`plugins/*/frontend/` 后重启即可；数据库迁移在启动时自动执行。升级前建议在后台开启定期备份或手动 `./muke backup <路径>`。
+替换二进制与 `frontend/`、`plugins/*/frontend/` 后重启即可；数据库迁移在启动时自动执行。升级前建议在后台开启定期备份，或停止服务后手动 `./muke backup <路径>`。
+
+`muke export` 与 `muke backup` 是离线维护命令，与 `serve` 共用内容目录实例锁；服务运行时会拒绝执行，避免并行恢复任务或读取不一致的数据。在线导出使用管理后台，在线完整备份使用定期备份任务。`tasks`、`cancel` 等队列操作仍可在服务运行时使用。完整备份在数据库快照和媒体复制期间持有内容锁，应用内修改会等待备份结束。

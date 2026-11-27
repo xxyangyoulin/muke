@@ -1,8 +1,8 @@
 # 木刻 MUKE
 
-当前版本：**0.3.0**。版本号以 [VERSION](VERSION) 为准，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**0.4.0**。版本号以 [VERSION](VERSION) 为准，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-PHP + SQLite 的个人动态 / 文章 / 壁纸收藏站。零框架、零构建：前端原生 HTML/CSS/JS，后端函数式 PHP，唯一第三方库是 [Parsedown](https://parsedown.org)（Markdown 渲染）。
+Rust + SQLite 的个人动态 / 文章 / 壁纸收藏站。后端为单二进制服务，前端使用独立的原生 HTML/CSS/JS，插件前后端放在各自目录中。PHP 实现保留用于迁移、回退与兼容性验证。
 
 支持两种发布形态：**动态部署**（自有服务器 / 内网，自带评论与点赞）与**静态部署**（一键导出纯 HTML 部署到 Netlify，评论接第三方系统）。
 
@@ -24,9 +24,24 @@ PHP + SQLite 的个人动态 / 文章 / 壁纸收藏站。零框架、零构建�
 
 ## 快速开始
 
+从 [GitHub Releases](https://github.com/xxyangyoulin/muke/releases) 下载对应架构的 `muke-0.4.0-x86_64.tar.gz` 或 `muke-0.4.0-aarch64.tar.gz`，以及 `SHA256SUMS`。需要 Linux（glibc 2.39+，如 Ubuntu 24.04）与 ImageMagick。
+
+```sh
+sha256sum --ignore-missing -c SHA256SUMS
+tar xzf muke-0.4.0-x86_64.tar.gz  # ARM64 使用 aarch64 安装包
+cd muke-0.4.0
+./muke check
+./muke serve
+# http://127.0.0.1:8785/admin
+```
+
+完整配置、systemd、Docker、升级与 PHP 数据迁移见 [Rust 安装指南](docs/rust-install.md)。Debian/Ubuntu 使用 ImageMagick 6 时，需按指南提供 `magick` 命令。
+
+### 旧 PHP 版运行方式
+
 依赖：PHP 8.1+（pdo_sqlite / sqlite3 / mbstring / curl / fileinfo / zip）、ImageMagick。
 
-从 [GitHub Releases](https://github.com/xxyangyoulin/muke/releases) 下载 `muke-<版本>.zip` 和 `SHA256SUMS`，运行 `sha256sum -c SHA256SUMS` 校验，解压后进入 `muke-<版本>/`。这是可运行的项目安装包，不是静态站点包，也不包含 PHP、ImageMagick、用户数据或个人配置。不要用它覆盖自己的 `var/` 和 `config.php`。
+从 [v0.3.0 Release](https://github.com/xxyangyoulin/muke/releases/tag/v0.3.0) 下载 `muke-0.3.0.zip` 和 `SHA256SUMS`，运行 `sha256sum -c SHA256SUMS` 校验，解压后进入 `muke-0.3.0/`。不要用它覆盖自己的 `var/` 和 `config.php`。
 
 ```sh
 # 1. 环境自检
@@ -66,20 +81,20 @@ pm2 logs mkblog-sync --lines 50
 
 ## 版本与项目安装包发布
 
-采用 `major.minor.patch` 版本号。先修改 `VERSION` 和 `CHANGELOG.md`，提交本次发布所需的全部代码，再推送对应标签：
+采用 `major.minor.patch` 版本号。同步修改 `VERSION`、`Cargo.toml`、`Cargo.lock` 和 `CHANGELOG.md`，提交本次发布所需的全部代码，再推送对应标签：
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin master v0.4.0
 ```
 
-标签必须与该提交的 `VERSION` 一致。GitHub Actions 会先运行完整测试，再生成项目安装 ZIP 和 `SHA256SUMS`，上传至对应 GitHub Release；不执行静态站点导出。使用仓库自带的 `GITHUB_TOKEN`，不需要配置个人令牌；仓库须允许 GitHub Actions 运行及工作流申请 `contents: write` 权限。
+标签必须与该提交的 `VERSION` 和二进制版本一致。GitHub Actions 会先运行 PHP 与 Rust 测试，在 x86_64、aarch64 原生 runner 上构建并解压验证安装包，然后把两个 tar.gz 和统一的 `SHA256SUMS` 上传至 GitHub Release。使用仓库自带的 `GITHUB_TOKEN`，仓库须允许 GitHub Actions 运行及发布任务申请 `contents: write` 权限。
 
-本地可执行 `bash scripts/package.sh v0.3.0`（仅在 Git 源码仓库中使用），产物在 `build/release/`。打包只读取 **HEAD 中已提交的文件**，不包含尚未提交的修改；私有配置、数据库、上传图片、壁纸原图、缓存和 `dist/` 均不打包。新的版本请创建新的标签，不移动已发布标签；更新版本号时同步更新本页版本与命令示例。
+本地在干净的发布提交上执行 `cargo build --release --locked` 与 `bash scripts/rust-package.sh v0.4.0`，产物在 `build/release/`。脚本使用当前构建的二进制、前端资源及安装文档，不打包个人配置、数据库或用户媒体。新的版本请创建新的标签，不移动已发布标签；更新版本号时同步更新本页版本与命令示例。旧 PHP 打包脚本 `scripts/package.sh` 保留用于兼容性测试。
 
 升级前先做完整备份。将新版本解压至新目录，接回自己的配置与数据目录，运行环境自检后再切换服务；数据库迁移会在首次启动执行，回退旧代码可能还需要恢复升级前的数据备份。
 
-## 配置
+## PHP 版配置
 
 两层：**后台「站点设置」界面修改即生效**（运行参数：标语、壁纸目录、限额、评论、缩略图等），`config.php`（个人覆盖，不入库不入 Git）承载基础设施项。完整默认值见 `config.default.php`，常用环境变量：
 

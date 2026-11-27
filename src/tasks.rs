@@ -297,17 +297,22 @@ async fn execute(
     }.await;
     monitor.abort();
     let _ = monitor.await;
-    let mut tx = app.tasks.begin_with("BEGIN IMMEDIATE").await?;
+    finish(&ctx, result, image).await
+}
+
+async fn finish(ctx: &Context, result: Result<Value>, image: bool) -> Result<()> {
+    let mut tx = ctx.pool.begin_with("BEGIN IMMEDIATE").await?;
     let requested: i64 = sqlx::query_scalar("SELECT cancel_requested FROM jobs WHERE id=?")
-        .bind(id)
+        .bind(ctx.id)
         .fetch_one(&mut *tx)
         .await?;
-    let state = if ctx.stop.is_cancelled() || requested != 0 {
-        "cancelled"
-    } else if result.is_err() {
-        "failed"
-    } else {
+    // A successful executor has finished its commit; a late request cannot undo it.
+    let state = if result.is_ok() {
         "succeeded"
+    } else if ctx.stop.is_cancelled() || requested != 0 {
+        "cancelled"
+    } else {
+        "failed"
     };
     if (state != "succeeded" || !image) && ctx.directory.exists() {
         tokio::fs::remove_dir_all(&ctx.directory).await?;
@@ -322,7 +327,7 @@ async fn execute(
     .bind(state)
     .bind(value)
     .bind(error)
-    .bind(id)
+    .bind(ctx.id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -357,4 +362,66 @@ pub async fn events(
 }
 pub fn api_error(error: anyhow::Error) -> Error {
     Error::Internal(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::export::artifact::Artifact;
+
+    #[tokio::test]
+    async fn cancellation_at_publication_boundary_records_the_actual_outcome() {
+        let root = tempfile::tempdir().unwrap();
+        let pool = open(&root.path().join("work")).await.unwrap();
+        let destination = root.path().join("dist");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(destination.join("index.html"), "old").unwrap();
+        for (timing, expected) in [
+            ("before", "cancelled"),
+            ("after-request", "succeeded"),
+            ("after-token", "succeeded"),
+        ] {
+            let id = submit(&pool, &Task::Export {}).await.unwrap();
+            sqlx::query("UPDATE jobs SET state='running' WHERE id=?")
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let ctx = Context {
+                id,
+                pool: pool.clone(),
+                directory: root.path().join(format!("job-{id}")),
+                stop: CancellationToken::new(),
+            };
+            std::fs::create_dir(&ctx.directory).unwrap();
+            let artifact = Artifact::new(&destination).unwrap();
+            std::fs::write(artifact.path().join("index.html"), timing).unwrap();
+            if timing == "before" {
+                assert!(cancel(&pool, id).await.unwrap());
+                ctx.stop.cancel();
+            }
+            let result = artifact
+                .publish(&ctx.stop)
+                .map(|path| json!({"directory":path}));
+            if timing != "before" {
+                assert!(cancel(&pool, id).await.unwrap());
+                if timing == "after-token" {
+                    ctx.stop.cancel();
+                }
+            }
+            finish(&ctx, result, false).await.unwrap();
+            let job = list(&pool).await.unwrap()[0].clone();
+            assert_eq!(job["state"], expected);
+            assert_eq!(
+                std::fs::read_to_string(destination.join("index.html")).unwrap(),
+                if timing == "before" { "old" } else { timing }
+            );
+            assert!(!ctx.directory.exists());
+            assert!(!cancel(&pool, id).await.unwrap());
+            if expected == "succeeded" {
+                assert_eq!(job["result"]["directory"], destination.to_str().unwrap());
+                assert!(job["error"].is_null());
+            }
+        }
+    }
 }

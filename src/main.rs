@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
 #[derive(Parser)]
-#[command(about = "MUKE：内容管理与后台任务服务")]
+#[command(version, about = "MUKE：内容管理与后台任务服务")]
 struct Args {
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -68,6 +68,21 @@ async fn main() -> Result<()> {
     if data.starts_with(&work) {
         bail!("任务目录不能包含内容目录");
     }
+    let _instance_lock = if matches!(
+        args.command,
+        Action::Serve { .. } | Action::Export | Action::Backup { .. }
+    ) {
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(data.join("service.lock"))?;
+        fs2::FileExt::try_lock_exclusive(&lock)
+            .context("该内容目录已有服务或维护命令运行；在线导出和备份请使用后台任务")?;
+        Some(lock)
+    } else {
+        None
+    };
     match args.command {
         Action::Serve { listen, frontend } => {
             let listen = listen.unwrap_or(config.listen);
@@ -76,12 +91,6 @@ async fn main() -> Result<()> {
                 bail!("前端目录缺少 index.html");
             }
             config.frontend = frontend.clone();
-            let lock = std::fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(data.join("service.lock"))?;
-            fs2::FileExt::try_lock_exclusive(&lock).context("该任务目录已有服务运行")?;
             let pool = tasks::open(&work).await?;
             tasks::recover(&pool, &work).await?;
             muke::export::artifact::recover(&config.export_dir)?;
@@ -163,7 +172,6 @@ async fn main() -> Result<()> {
                 .await
                 .context("任务关闭超时")???;
             result?;
-            drop(lock);
         }
         action => {
             let pool = tasks::open(&work).await?;
@@ -182,6 +190,7 @@ async fn main() -> Result<()> {
                         bail!("前端目录缺少 index.html");
                     }
                     tasks::recover(&pool, &work).await?;
+                    muke::export::artifact::recover(&config.export_dir)?;
                     let db = database::open(&data).await?;
                     let stop = CancellationToken::new();
                     let state = App {

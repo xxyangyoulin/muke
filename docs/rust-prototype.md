@@ -137,7 +137,7 @@ Netlify 部署已迁移到统一任务：`src/deploy.rs` 以摘要式增量上�
 
 备份与恢复已完成：`src/backup.rs` 以 `VACUUM INTO` 做数据库一致性快照，连同上传图片、头像/封面与插件 `backup_paths` 声明的资源目录（壁纸目录）打包为 ZIP 与 manifest；拒绝符号链接、备份目标位于资源目录内、已存在的目标。恢复要求已存在的空目录，校验清单、条目路径与符号链接后解压，做完整性检查并把插件资源目录写回设置表；`muke backup <path>` 与 `muke restore <archive> <target>` CLI 可用。JSON 备份（`backup-export`/`backup-import`）整体替换内容表与设置并保留登录账号，上传图片原子替换、失败回滚。定时备份走 `Task::Backup` 与 schedules 表（启用即排期、间隔变更即时收缩），成功后按保留数量只轮换自动命名的文件；任务页提供设置表单与备份文件列表（`tasks` 查询附带备份块，SSE 推送仅任务列表）。测试覆盖备份/恢复往返（含插件资源与设置回写、非法目标与取消）、定时轮换、任务提交与 core.py 的 JSON 导入导出全流程；CLI 演练验证恢复目录可直接启动服务。
 
-发行与迁移工具已就绪：`muke check` 自检 magick、数据目录、前端与插件资源；`scripts/rust-package.sh` 打包二进制 + 前端 + 插件前端 + 配置示例与 systemd 单元为架构命名 tar.gz 并生成校验和；`scripts/muke.service` 与 `muke.toml.example` 提供部署样例；`Dockerfile.rust` 多阶段构建运行镜像（运行层仅 ImageMagick）；`bin/rust-migrate-config.php` 把 PHP `config.php` 转为 TOML；安装、迁移与回退步骤见 [rust-install.md](rust-install.md)。CI 的 `release` 任务在 `v*` 标签上于 x86_64 与 aarch64 原生 runner 构建、自检、冒烟启动并打包上传（原生构建满足「不能只验证交叉编译成功」）。release 构建启用符号裁剪与 thin LTO。
+发行与迁移工具已就绪：`muke check` 自检 magick、数据目录、前端与插件资源；`scripts/rust-package.sh` 打包二进制 + 前端 + 插件前端 + 配置示例与 systemd 单元为架构命名 tar.gz 并生成校验和；`scripts/muke.service` 与 `muke.toml.example` 提供部署样例；`Dockerfile.rust` 多阶段构建运行镜像（运行层仅 ImageMagick）；`bin/rust-migrate-config.php` 把 PHP `config.php` 转为 TOML；安装、迁移与回退步骤见 [rust-install.md](rust-install.md)。Release workflow 在 `v*` 标签上先通过 PHP 与 Rust 测试，再于 x86_64 与 aarch64 原生 runner 构建，解压安装包自检与冒烟启动，最后发布两个 tar.gz 和统一校验文件至 GitHub Release。release 构建启用符号裁剪与 thin LTO。
 
 原生评论的反垃圾与通知已补齐：配置 `akismet_key` 后经受限网络客户端调用 Akismet comment-check（站点地址取 site_url，缺失时按请求 Host 推导），判垃圾直接入 spam 且对提交方假成功；`src/mail.rs` 提供极简 SMTP 客户端（465 隐式 TLS，rustls + webpki 根证书，AUTH LOGIN、点填充、多行响应），新评论通知管理员（spam 不打扰）、回复放行时通知留过邮箱的被回复者，发送在后台任务执行、失败只记日志。测试覆盖 Akismet 判垃圾与无配置不外呼、SMTP 协议状态机（多行续行、错误码、未配置空操作）。
 
@@ -158,6 +158,8 @@ Netlify 部署已迁移到统一任务：`src/deploy.rs` 以摘要式增量上�
 - **部署 panic 修复**：giscus 计数挂载循环对数组形状的插件导出（壁纸图库）改为安全查找。
 
 ## 生产切换（2026-11-27）
+
+核查修复（2026-11-27，代码尚需部署到运行实例）：完整备份在数据库快照和媒体复制期间持有内容写锁，等待锁时可取消；离线 `export` / `backup` 与 `serve` 共用实例锁。任务执行成功后以实际完成结果为准，晚到的取消请求不再覆盖成功状态。导出恢复按目标目录在父目录清理带目标标识的暂存目录，保留其他导出目标与符号链接；旧版无目标标识的 `.export-*` 遗留目录不自动删除。插件原图和所有缩略图改用文件内容 SHA-256 命名，避免同引用媒体更新或缩略图参数变化后继续命中旧的 immutable 缓存。Docker 的 Debian Bookworm 运行层增加 `magick` → `convert` 命令适配，已单独构建该运行层验证 ImageMagick 6 的 WebP 输出与缩放。
 
 本机已完成从 PHP 到 Rust 的切换：PHP 数据经 `VACUUM INTO` 快照与文件复制迁至 `var-rust/`（切换前核对表计数、最新动态、文章、设置与图片服务全部一致）；PHP 侧全部停止——PM2 `mkblog-sync`、`/etc/nginx/mkblog.conf` 的 nginx 实例、php-fpm 的 mkblog 池（配置改名 `.disabled` 并 reload，socket 已移除，无相关 cron）。Rust 以 PM2 进程 `muke` 监听 `0.0.0.0:8765` 接管原端口，`pm2 save` 已持久化；站点、管理界面、五个插件、图片与任务系统均在新实例上运行，PHP `var/` 原样保留作回退。回退步骤：恢复 php-fpm 池配置并 reload、重启 mkblog nginx 与 `mkblog-sync`、停 `muke`。
 

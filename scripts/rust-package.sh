@@ -20,6 +20,10 @@ if [[ ! -x "$ROOT/target/release/muke" ]]; then
     echo "缺少 target/release/muke；先运行 cargo build --release --locked" >&2
     exit 1
 fi
+if [[ "$("$ROOT/target/release/muke" --version)" != "muke $VERSION" ]]; then
+    echo "二进制版本与 VERSION 不一致，请重新构建" >&2
+    exit 1
+fi
 OUTPUT="${2:-$ROOT/build/release}"
 mkdir -p "$OUTPUT"
 OUTPUT="$(cd "$OUTPUT" && pwd)"
@@ -48,8 +52,10 @@ done
 install -m 0644 "$ROOT/scripts/muke.toml.example" "$PACKAGE/muke.toml.example"
 install -m 0644 "$ROOT/scripts/muke.service" "$PACKAGE/muke.service"
 install -m 0644 "$ROOT/LICENSE" "$PACKAGE/LICENSE"
+install -m 0644 "$ROOT/VERSION" "$PACKAGE/VERSION"
+install -m 0644 "$ROOT/CHANGELOG.md" "$PACKAGE/CHANGELOG.md"
 mkdir -p "$PACKAGE/docs"
-install -m 0644 "$ROOT/docs/rust-install.md" "$PACKAGE/docs/rust-install.md" 2>/dev/null || true
+install -m 0644 "$ROOT/docs/rust-install.md" "$PACKAGE/docs/rust-install.md"
 
 tar -C "$STAGE" -czf "$OUTPUT/$ARCHIVE" "muke-$VERSION"
 (cd "$OUTPUT" && sha256sum "$ARCHIVE" > "SHA256SUMS-$ARCH")

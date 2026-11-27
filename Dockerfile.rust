@@ -13,6 +13,7 @@ COPY frontend ./frontend
 
 FROM debian:bookworm-slim
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends imagemagick ca-certificates && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/convert /usr/local/bin/magick \
     && useradd --system --home /opt/muke muke
 WORKDIR /opt/muke
 COPY --from=build /src/target/release/muke /usr/local/bin/muke

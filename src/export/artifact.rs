@@ -12,20 +12,33 @@ pub struct Artifact {
     destination: PathBuf,
 }
 
+fn staging_parent(destination: &Path) -> &Path {
+    destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+}
+
+fn staging_prefix(destination: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let name = destination.file_name().context("导出目录必须有目录名")?;
+    Ok(format!(
+        ".export-{}-",
+        hex::encode(Sha256::digest(name.as_bytes()))
+    ))
+}
+
 impl Artifact {
     /// destination 为最终导出目录；暂存目录建在其父目录内，保证同一文件系统内原子切换。
     pub fn new(destination: &Path) -> Result<Self> {
-        let root = destination
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
+        let root = staging_parent(destination);
         std::fs::create_dir_all(root)?;
         if !std::fs::symlink_metadata(root)?.is_dir() {
             bail!("导出目录不能是符号链接");
         }
         Ok(Self {
             directory: tempfile::Builder::new()
-                .prefix(".export-")
+                .prefix(&staging_prefix(destination)?)
                 .tempdir_in(root)?,
             destination: destination.to_owned(),
         })
@@ -75,7 +88,9 @@ impl Artifact {
     }
 }
 
-pub fn recover(root: &Path) -> Result<()> {
+pub fn recover(destination: &Path) -> Result<()> {
+    let root = staging_parent(destination);
+    let prefix = staging_prefix(destination)?;
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -86,9 +101,7 @@ pub fn recover(root: &Path) -> Result<()> {
     }
     for entry in entries {
         let entry = entry?;
-        if entry.file_name().to_string_lossy().starts_with(".export-")
-            && entry.file_type()?.is_dir()
-        {
+        if entry.file_name().to_string_lossy().starts_with(&prefix) && entry.file_type()?.is_dir() {
             std::fs::remove_dir_all(entry.path())?;
         }
     }
@@ -136,16 +149,37 @@ mod tests {
             std::fs::read_to_string(destination.join("index.html")).unwrap(),
             "next"
         );
-        let abandoned = root.path().join(".export-abandoned");
-        std::fs::create_dir(&abandoned).unwrap();
+        let abandoned = Artifact::new(&destination).unwrap().directory.keep();
         std::fs::write(abandoned.join("index.html"), "old or incomplete").unwrap();
-        recover(root.path()).unwrap();
+        recover(&destination).unwrap();
         assert!(!abandoned.exists());
         assert_eq!(
             std::fs::read_to_string(destination.join("index.html")).unwrap(),
             "next"
         );
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn recovery_uses_destination_parent_and_preserves_other_exports() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("dist");
+        let abandoned = Artifact::new(&destination).unwrap().directory.keep();
+        let other = Artifact::new(&root.path().join("other")).unwrap();
+        let sibling = root.path().join("unrelated");
+        std::fs::create_dir(&sibling).unwrap();
+        // No dist exists when a first export is interrupted.
+        recover(&destination).unwrap();
+        assert!(!abandoned.exists());
+        assert!(other.path().exists());
+        assert!(sibling.exists());
+        assert!(!destination.exists());
+        // The default relative destination must use the current directory as parent.
+        assert_eq!(staging_parent(Path::new("dist")), Path::new("."));
+        assert_eq!(
+            staging_prefix(Path::new("dist")).unwrap(),
+            staging_prefix(&destination).unwrap()
+        );
     }
 
     #[test]
@@ -162,9 +196,12 @@ mod tests {
             std::fs::read_to_string(outside.path().join("index.html")).unwrap(),
             "outside"
         );
-        let link = root.path().join(".export-link");
+        let destination = root.path().join("dist");
+        let link = root
+            .path()
+            .join(format!("{}link", staging_prefix(&destination).unwrap()));
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
-        recover(root.path()).unwrap();
+        recover(&destination).unwrap();
         assert!(link.is_symlink());
         assert!(outside.path().join("index.html").exists());
     }

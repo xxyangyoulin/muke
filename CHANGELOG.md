@@ -1,5 +1,16 @@
 # 更新记录
 
+## 0.4.0
+
+- 发布 Rust 服务：单二进制后端与独立前端，插件前后端集中在各自目录，通过通用接口接入核心。
+- 统一管理图片处理、插件同步、导出、Netlify 部署与定期备份任务，支持并发、取消、进度与中断恢复。
+- 提供内容管理、RSS/壁纸等插件、giscus 评论与点赞统计缓存、静态站点导出及完整备份恢复。
+- 修复备份快照与媒体一致性、离线命令与运行服务互斥、任务提交后的取消状态，以及导出临时目录恢复。
+- 静态媒体使用内容哈希更新缓存地址；修复 Debian 容器中的 ImageMagick 命令兼容。
+- Release 在 PHP/Rust 测试通过后，原生构建并验证 Linux x86_64、aarch64 安装包，发布 tar.gz 与 SHA256SUMS。
+
+安装包基于 Ubuntu 24.04 构建，需要 glibc 2.39 或更高版本及 ImageMagick。安装与从 PHP 版迁移见 [Rust 安装指南](https://github.com/xxyangyoulin/muke/blob/v0.4.0/docs/rust-install.md)；旧 PHP 版安装包保留在 v0.3.0 Release。
+
 ## 0.3.0
 
 - 接入 giscus，支持 GitHub 登录、文章与动态独立讨论，动态站与 Netlify 静态站共用评论和 ❤️ 点赞。

@@ -143,6 +143,7 @@ impl Copies {
             let relative = if let Some(name) = reference.strip_prefix("up:") {
                 format!("media/uploads/{name}")
             } else {
+                let key = fingerprint(&source, stop).await?;
                 let relative = format!("media/plugins/{key}.{format}");
                 let target = destination.join(&relative);
                 tokio::fs::rename(&source, &target).await?;
@@ -161,6 +162,9 @@ impl Copies {
                 )
                 .await?;
             }
+            let thumb_path = destination.join(&thumbnail);
+            let thumbnail = format!("thumbnails/{}.webp", fingerprint(&thumb_path, stop).await?);
+            tokio::fs::rename(&thumb_path, destination.join(&thumbnail)).await?;
             let bytes = tokio::fs::metadata(&source).await?.len();
             descriptors.insert(reference.clone(), json!({"ref":reference,"url":format!("/{relative}"),"thumb":format!("/{thumbnail}"),"width":width,"height":height,"bytes":bytes}));
         }
@@ -171,6 +175,24 @@ impl Copies {
         }
         tokio::fs::remove_dir(destination.join(".media-sources")).await?;
         Ok(descriptors)
+    }
+}
+
+async fn fingerprint(path: &Path, stop: &CancellationToken) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncReadExt;
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut hash = Sha256::new();
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        if stop.is_cancelled() {
+            bail!("任务已取消");
+        }
+        let size = file.read(&mut buffer).await?;
+        if size == 0 {
+            return Ok(hex::encode(hash.finalize()));
+        }
+        hash.update(&buffer[..size]);
     }
 }
 

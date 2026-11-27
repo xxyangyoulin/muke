@@ -11,6 +11,12 @@ use zip::write::SimpleFileOptions;
 /// 创建完整备份：数据库快照、上传图片、头像/封面与插件声明的资源目录。
 /// 写入 archive（不能已存在）；失败时删除半成品。
 pub async fn create(app: &App, archive: &Path, stop: &CancellationToken) -> Result<()> {
+    // Keep the database snapshot and its media under the same mutation barrier.
+    let _guard = tokio::select! {
+        biased;
+        _ = stop.cancelled() => bail!("任务已取消"),
+        guard = app.content_lock.write() => guard,
+    };
     if archive.exists() {
         bail!("备份目标已存在");
     }
@@ -56,6 +62,9 @@ pub async fn create(app: &App, archive: &Path, stop: &CancellationToken) -> Resu
             manifest["paths"][key] = json!(relative);
         }
         zip_entries(&partial, &paths, &snapshot, &manifest, stop).await?;
+        if stop.is_cancelled() {
+            bail!("任务已取消");
+        }
         tokio::fs::rename(&partial, archive).await?;
         Ok(())
     }
@@ -102,6 +111,9 @@ async fn zip_entries(
                 let mut directories = vec![source.clone()];
                 while let Some(directory) = directories.pop() {
                     for entry in std::fs::read_dir(&directory)? {
+                        if stop.is_cancelled() {
+                            bail!("任务已取消");
+                        }
                         let entry = entry?;
                         let path = entry.path();
                         let entry_metadata = entry.metadata()?;
@@ -355,6 +367,63 @@ mod tests {
         };
         plugins::migrate(&app).await.unwrap();
         app
+    }
+
+    #[tokio::test]
+    async fn backup_waits_for_content_mutations_and_can_cancel_while_waiting() {
+        let root = tempfile::tempdir().unwrap();
+        let app = app(root.path()).await;
+        let archive = root.path().join("backup.zip");
+        let guard = app.content_lock.write().await;
+        let name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png";
+        std::fs::write(app.data.join("uploads").join(name), "old-image").unwrap();
+        sqlx::query(
+            "INSERT INTO posts(content,images,created_at,updated_at) VALUES('old',?,'2026','2026')",
+        )
+        .bind(json!([format!("up:{name}")]).to_string())
+        .execute(&app.db)
+        .await
+        .unwrap();
+        let stop = CancellationToken::new();
+        let pending = create(&app, &archive, &stop);
+        tokio::pin!(pending);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut pending)
+                .await
+                .is_err()
+        );
+        assert!(!archive.with_extension("sqlite.snapshot").exists());
+        // Finish the mutation while backup is waiting, including its media deletion.
+        sqlx::query("DELETE FROM posts")
+            .execute(&app.db)
+            .await
+            .unwrap();
+        std::fs::remove_file(app.data.join("uploads").join(name)).unwrap();
+        stop.cancel();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), &mut pending)
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert!(!archive.exists());
+        drop(guard);
+        create(&app, &archive, &CancellationToken::new())
+            .await
+            .unwrap();
+        let restored = root.path().join("restored");
+        std::fs::create_dir(&restored).unwrap();
+        restore(&archive, &restored).await.unwrap();
+        let db = database::open(&restored).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM posts")
+                .fetch_one(&db)
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(!restored.join("uploads").join(name).exists());
+        assert!(app.content_lock.try_write().is_ok());
     }
 
     #[tokio::test]

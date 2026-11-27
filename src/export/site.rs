@@ -110,8 +110,7 @@ fn write_extras(destination: &Path, data: &Data) -> Result<()> {
         )?;
         headers.push_str("/embed/*\n  Content-Security-Policy: default-src 'self'; script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src * data: blob:; font-src * data:; connect-src *; frame-ancestors 'self'\n");
     }
-    // 内容寻址资源（上传图为哈希文件名，插件媒体按内容格式命名）可长缓存；
-    // 入口与 JSON 数据保持默认协商
+    // Plugin originals and thumbnails use content hashes; uploads have immutable names.
     headers.push_str(
         "/media/uploads/*\n  Cache-Control: public, max-age=31536000, immutable\n/media/plugins/*\n  Cache-Control: public, max-age=31536000, immutable\n/thumbnails/*\n  Cache-Control: public, max-age=31536000, immutable\n",
     );
@@ -281,5 +280,86 @@ mod tests {
         assert!(!headers.contains("frame-src"));
         let page = std::fs::read_to_string(root.path().join("404.html")).unwrap();
         assert!(page.contains("这片风景还未抵达"));
+    }
+
+    #[tokio::test]
+    async fn exported_media_urls_change_with_bytes_and_thumbnail_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let app = app(root.path()).await;
+        let walls = root.path().join("walls");
+        std::fs::create_dir(&walls).unwrap();
+        let source = walls.join("wall.png");
+        image::RgbImage::from_pixel(256, 128, image::Rgb([255, 0, 0]))
+            .save(&source)
+            .unwrap();
+        for (key, value) in [
+            ("wallpapers_enabled", "1"),
+            ("wallpaper_dir", walls.to_str().unwrap()),
+            ("thumb_size", "64"),
+        ] {
+            sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                .bind(key).bind(value).execute(&app.db).await.unwrap();
+        }
+        sqlx::query("INSERT INTO wallpapers(id,path,name,width,height,bytes,mtime) VALUES('test','wall.png','wall',256,128,1,1)")
+            .execute(&app.db).await.unwrap();
+        let ctx = tasks::Context {
+            id: 1,
+            pool: app.tasks.clone(),
+            directory: root.path().join("job"),
+            stop: CancellationToken::new(),
+        };
+        let frontend = Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
+        let dist = root.path().join("dist");
+        let mut previous: Option<Value> = None;
+        for revision in 0..4 {
+            if revision == 1 {
+                image::RgbImage::from_pixel(256, 128, image::Rgb([0, 0, 255]))
+                    .save(&source)
+                    .unwrap();
+            } else if revision == 2 {
+                sqlx::query("UPDATE settings SET value='32' WHERE key='thumb_size'")
+                    .execute(&app.db)
+                    .await
+                    .unwrap();
+            }
+            export(&app, &frontend, &dist, &ctx).await.unwrap();
+            let data: Value =
+                serde_json::from_slice(&std::fs::read(dist.join("assets/content.json")).unwrap())
+                    .unwrap();
+            let wall = &data["plugins"]["wallpapers"][0];
+            for key in ["original", "thumbnail"] {
+                let relative = wall[key].as_str().unwrap().trim_start_matches('/');
+                let bytes = std::fs::read(dist.join(relative)).unwrap();
+                use sha2::{Digest, Sha256};
+                assert_eq!(
+                    Path::new(relative).file_stem().unwrap().to_str().unwrap(),
+                    hex::encode(Sha256::digest(&bytes))
+                );
+            }
+            let thumb = dist.join(wall["thumbnail"].as_str().unwrap().trim_start_matches('/'));
+            assert_eq!(
+                image::image_dimensions(thumb).unwrap().0,
+                if revision < 2 { 64 } else { 32 }
+            );
+            if let Some(previous) = &previous {
+                if revision == 1 {
+                    assert_ne!(wall["original"], previous["original"]);
+                } else {
+                    assert_eq!(wall["original"], previous["original"]);
+                }
+                if revision < 3 {
+                    assert_ne!(wall["thumbnail"], previous["thumbnail"]);
+                } else {
+                    assert_eq!(wall["thumbnail"], previous["thumbnail"]);
+                }
+            }
+            previous = Some(wall.clone());
+        }
+        let headers = std::fs::read_to_string(dist.join("_headers")).unwrap();
+        for pattern in ["/media/plugins/*", "/thumbnails/*"] {
+            assert!(headers.contains(&format!(
+                "{pattern}\n  Cache-Control: public, max-age=31536000, immutable\n"
+            )));
+        }
     }
 }

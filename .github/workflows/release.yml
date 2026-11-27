@@ -13,11 +13,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
+  php-test:
     uses: ./.github/workflows/ci.yml
 
+  rust-test:
+    uses: ./.github/workflows/rust.yml
+
+  build:
+    needs: [php-test, rust-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.91.1
+      - name: Install build and runtime dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick build-essential perl pkg-config
+          sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
+      - name: Build and package
+        run: |
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          cargo build --release --locked
+          bash scripts/rust-package.sh "$GITHUB_REF_NAME"
+      - name: Verify extracted installation
+        run: |
+          version="$(cat VERSION)"
+          cd build/release
+          sha256sum -c "SHA256SUMS-${{ matrix.arch }}"
+          tar -xzf "muke-$version-${{ matrix.arch }}.tar.gz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/muke-$version"
+          test "$(./muke --version)" = "muke $version"
+          ./muke check
+          ./muke serve --listen 127.0.0.1:8799 &
+          pid=$!
+          trap 'kill "$pid"; wait "$pid" || true' EXIT
+          curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8799/health
+          curl --fail --silent --show-error http://127.0.0.1:8799/ -o /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: muke-release-${{ matrix.arch }}
+          path: |
+            build/release/muke-*.tar.gz
+            build/release/SHA256SUMS-*
+          if-no-files-found: error
+
   release:
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,8 +77,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build application package
-        run: bash scripts/package.sh "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: muke-release-*
+          path: build/release
+          merge-multiple: true
+
+      - name: Verify release assets and prepare notes
+        run: |
+          version="$(cat VERSION)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          cd build/release
+          test -f "muke-$version-x86_64.tar.gz"
+          test -f "muke-$version-aarch64.tar.gz"
+          cat SHA256SUMS-x86_64 SHA256SUMS-aarch64 > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          awk -v version="$version" '$0 == "## " version { show=1; next } show && /^## / { exit } show { print }' ../../CHANGELOG.md > notes.md
+          test -s notes.md
 
       - name: Publish GitHub Release
         env:
@@ -35,5 +101,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            build/release/muke-*.zip build/release/SHA256SUMS \
-            --verify-tag --title "MUKE $GITHUB_REF_NAME" --generate-notes
+            build/release/muke-*.tar.gz build/release/SHA256SUMS \
+            --verify-tag --title "MUKE $GITHUB_REF_NAME" \
+            --notes-file build/release/notes.md --generate-notes
