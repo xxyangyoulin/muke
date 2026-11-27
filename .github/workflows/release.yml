@@ -35,7 +35,7 @@ jobs:
       - name: Install build and runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq imagemagick build-essential perl pkg-config
+          sudo apt-get install -y -qq imagemagick libheif-plugin-aomenc libheif-plugin-aomdec build-essential perl pkg-config
           sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
       - name: Build and package
         run: |
