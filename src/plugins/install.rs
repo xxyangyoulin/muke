@@ -394,9 +394,12 @@ pub async fn run(
     }
     ctx.progress("编译插件", 1, Some(4)).await?;
     let target = ctx.directory.join("target");
+    let temporary = ctx.directory.join("tmp");
+    tokio::fs::create_dir(&temporary).await?;
     let mut command = Command::new("cargo");
     command
         .current_dir(&repository)
+        .env("TMPDIR", &temporary)
         .env(
             "CARGO_HOME",
             std::env::var_os("CARGO_HOME")

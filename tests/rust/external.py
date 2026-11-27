@@ -34,6 +34,11 @@ def main():
         original = (repository / 'src/main.rs').read_text()
         env = {key: value for key, value in os.environ.items() if not key.startswith('MKBLOG_')}
         env['CARGO_NET_OFFLINE'] = 'true'
+        blocked_tmp = root / 'unusable-temp'
+        blocked_tmp.write_text('not a directory')
+        env['TMPDIR'] = str(blocked_tmp)
+        (repository / 'build.rs').write_text('fn main() { std::fs::write(std::env::temp_dir().join("compiler-probe"), b"ok").unwrap(); }\n')
+
         env.setdefault('CARGO_HOME', str(Path.home() / '.cargo'))
         # Exercise the GitHub clone command and its arguments without external network.
         commands = root / 'commands'
