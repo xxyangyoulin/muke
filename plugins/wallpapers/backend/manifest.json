@@ -1,0 +1,61 @@
+{
+  "id": "wallpapers",
+  "name": "壁纸收藏",
+  "description": "扫描本地壁纸目录并展示瀑布流；新壁纸按文件时间自动发布为一条动态。",
+  "frontend": {
+    "module": "plugin.js",
+    "style": "plugin.css"
+  },
+  "page": {
+    "route": "/wallpapers",
+    "title": "壁纸收藏",
+    "description": "壁纸收藏——精选风景壁纸，可在线预览与下载原图。",
+    "nav": {
+      "icon": "image",
+      "label": "壁纸收藏",
+      "count": true
+    }
+  },
+  "page_setting": "wallpaper_dir",
+  "setting_keys": {
+    "enabled": "wallpapers_enabled",
+    "wallpaper_dir": "wallpaper_dir",
+    "wallpaper_sync_interval": "wallpaper_sync_interval",
+    "wallpaper_post_template": "wallpaper_post_template",
+    "gallery_batch": "gallery_batch"
+  },
+  "fields": [
+    {
+      "key": "wallpaper_dir",
+      "label": "壁纸目录",
+      "type": "text",
+      "pattern": "^/",
+      "hint": "绝对路径；留空时不展示壁纸页"
+    },
+    {
+      "key": "wallpaper_sync_interval",
+      "label": "自动同步间隔（秒）",
+      "type": "number",
+      "min": 0,
+      "max": 86400,
+      "default": 30,
+      "hint": "0 = 仅手动同步"
+    },
+    {
+      "key": "wallpaper_post_template",
+      "label": "新壁纸动态模板",
+      "type": "text",
+      "max": 200,
+      "hint": "{name} 为文件名，留空不发动态"
+    },
+    {
+      "key": "gallery_batch",
+      "label": "瀑布流每批加载（张）",
+      "type": "number",
+      "min": 6,
+      "max": 96,
+      "default": 24
+    }
+  ],
+  "post_images_full": true
+}

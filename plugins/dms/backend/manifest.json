@@ -1,0 +1,25 @@
+{
+  "id": "dms",
+  "name": "桌面更新日志",
+  "description": "直接检测 DMS 插件安装与版本变化、运行内核变化，以及 Arch 的 DMS 软件包版本变化。首次同步只建立基线。",
+  "label_color": "#6750a4",
+  "fields": [
+    {
+      "key": "config_dir",
+      "label": "DMS 配置目录",
+      "type": "text",
+      "required": true,
+      "max": 1000,
+      "pattern": "^/",
+      "hint": "包含 plugins 子目录的绝对路径，例如 /home/用户名/.config/DankMaterialShell"
+    },
+    {
+      "key": "sync_minutes",
+      "label": "同步间隔（分钟）",
+      "type": "number",
+      "min": 1,
+      "max": 1440,
+      "default": 1
+    }
+  ]
+}

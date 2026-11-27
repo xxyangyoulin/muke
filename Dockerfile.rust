@@ -1,0 +1,25 @@
+# MUKE Rust 版容器镜像：docker build -f Dockerfile.rust -t muke .
+# 运行时只需 ImageMagick；数据与配置通过挂载提供：
+#   docker run -d -p 8785:8785 -v $PWD/data:/opt/muke/data -v $PWD/muke.toml:/opt/muke/muke.toml:ro muke
+FROM rust:1.91-slim-bookworm AS build
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential perl pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY migrations ./migrations
+COPY plugins ./plugins
+RUN cargo build --release --locked
+COPY frontend ./frontend
+
+FROM debian:bookworm-slim
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends imagemagick ca-certificates && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --home /opt/muke muke
+WORKDIR /opt/muke
+COPY --from=build /src/target/release/muke /usr/local/bin/muke
+COPY --from=build /src/frontend /opt/muke/frontend
+COPY --from=build /src/plugins /opt/muke/plugins
+USER muke
+EXPOSE 8785
+ENV MKBLOG_DATA_DIR=/opt/muke/data
+ENTRYPOINT ["muke"]
+CMD ["--config", "/opt/muke/muke.toml", "serve"]

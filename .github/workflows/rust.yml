@@ -1,0 +1,140 @@
+name: Rust rebuild
+
+on:
+  push:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'migrations/**'
+      - 'tests/*.rs'
+      - 'frontend/**'
+      - 'tests/rust/**'
+      - 'public/assets/**'
+      - 'tests/cdp.cjs'
+      - 'tests/fixtures/rss/**'
+      - 'app.php'
+      - 'config.default.php'
+      - 'public/index.php'
+      - 'src/**'
+      - 'plugins/**'
+      - 'bin/**'
+      - 'scripts/**'
+      - 'Dockerfile.rust'
+      - 'docs/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'migrations/**'
+      - 'tests/*.rs'
+      - 'frontend/**'
+      - 'tests/rust/**'
+      - 'public/assets/**'
+      - 'tests/cdp.cjs'
+      - 'tests/fixtures/rss/**'
+      - 'app.php'
+      - 'config.default.php'
+      - 'public/index.php'
+      - 'src/**'
+      - 'plugins/**'
+      - 'bin/**'
+      - 'scripts/**'
+      - 'Dockerfile.rust'
+      - 'docs/**'
+      - '.github/workflows/rust.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prototype:
+    runs-on: ubuntu-latest
+    env:
+      CHROME_BIN: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring, curl, fileinfo, zip
+      - name: Install ImageMagick and Chrome
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick build-essential perl pkg-config
+          sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
+          if [ ! -x /usr/bin/google-chrome ]; then
+            wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            sudo apt-get install -y -qq ./google-chrome-stable_current_amd64.deb
+          fi
+      - name: Rust checks
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked
+          find frontend plugins -name "*.js" -exec sh -c 'node --input-type=module --check < "$1"' _ {} \;
+      - name: API, browser and task contracts
+        run: |
+          cargo test --locked --test rust_export -- --ignored
+          python3 tests/rust/core.py
+          python3 tests/rust/contract.py --report /tmp/muke-rust-baseline.json
+          python3 tests/rust/plugins.py
+          python3 tests/rust/wallpapers.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-prototype-baseline
+          path: /tmp/muke-rust-baseline.json
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.1
+      - name: Install runtime dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick
+          sudo ln -sf "$(command -v convert)" /usr/local/bin/magick || true
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Startup smoke test
+        run: |
+          target/release/muke --data-dir /tmp/muke-check/data --work-dir /tmp/muke-check/work check
+          target/release/muke --data-dir /tmp/muke-smoke/data --work-dir /tmp/muke-smoke/work serve --listen 127.0.0.1:8799 --frontend frontend &
+          pid=$!
+          for i in $(seq 1 50); do
+            curl -fsS http://127.0.0.1:8799/health && break
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:8799/health
+          kill "$pid"
+          wait "$pid" || true
+      - name: Package
+        run: scripts/rust-package.sh "${GITHUB_REF_NAME}" .
+      - name: Checksum
+        run: cat SHA256SUMS-* && sha256sum -c SHA256SUMS-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: muke-release-${{ matrix.arch }}
+          path: |
+            muke-*.tar.gz
+            SHA256SUMS-*

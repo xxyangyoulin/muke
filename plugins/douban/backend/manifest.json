@@ -1,0 +1,16 @@
+{
+  "id":"douban",
+  "name":"豆瓣动态",
+  "description":"同步豆瓣的看过 / 想看 / 在看列表为日常动态，含海报封面与条目链接。",
+  "label_color":"#00b51d",
+  "supports_history":true,
+  "card":"movie",
+  "frontend":{"module":"plugin.js","style":"plugin.css"},
+  "fields":[
+    {"key":"user_id","label":"豆瓣用户 ID","type":"text","required":true,"pattern":"^[a-zA-Z0-9]{1,40}$","hint":"个人主页地址里的那串数字，如 1234567"},
+    {"key":"category","label":"同步列表","type":"select","options":{"collect":"看过","wish":"想看","do":"在看"},"default":"collect"},
+    {"key":"post_template","label":"动态文案模板","type":"text","max":200,"default":"看过《{title}》{rating}","hint":"可用 {title} {year} {rating} {date} {url} {category}"},
+    {"key":"sync_minutes","label":"同步间隔（分钟）","type":"number","min":5,"max":1440,"default":60},
+    {"key":"history_limit","label":"历史同步上限（条）","type":"number","min":1,"max":500,"default":20,"hint":"「同步全部历史」一次最多导入这么多条"}
+  ]
+}

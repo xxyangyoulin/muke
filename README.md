@@ -106,7 +106,7 @@ git push origin v0.3.0
 
 开发自己的插件见 **[docs/plugins.md](docs/plugins.md)**，架构与数据流见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
 
-后续前后端分离、简化安装与统一后台任务的迁移安排见 [Rust 重构计划](docs/rust-rebuild-plan.md)（规划阶段）。
+前后端分离的 Rust 版已完成并接管生产：单二进制服务（`src/`）+ 独立前端（`frontend/`）+ 插件前后端同目录（`plugins/<id>/`），统一后台任务（图片/插件同步/导出/部署/备份）、静态导出与 Netlify 部署、完整备份恢复。安装、迁移与回退见 [Rust 安装指南](docs/rust-install.md)，实现进度与验证记录见 [Rust 原型进度](docs/rust-prototype.md)。PHP 版保留可回退。
 
 删除语义：手动删除插件同步的动态会留墓碑（不再同步回来）；壁纸源文件删除则清动态、文件回归可重发。
 

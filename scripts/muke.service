@@ -1,0 +1,24 @@
+# MUKE（Rust 版）systemd 单元示例
+# 安装：cp scripts/muke.service /etc/systemd/system/ && systemctl enable --now muke
+# 配置里的 frontend 指向安装目录内的 frontend/；数据目录请保持专用用户可写。
+
+[Unit]
+Description=MUKE content and task service
+After=network.target
+
+[Service]
+Type=simple
+User=muke
+Group=muke
+WorkingDirectory=/opt/muke
+ExecStart=/opt/muke/muke --config /opt/muke/muke.toml serve
+Restart=on-failure
+RestartSec=3
+# 硬化：服务只需读写自己的数据目录
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/muke/data /opt/muke/dist
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

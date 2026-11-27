@@ -1,6 +1,8 @@
 /var/*
+/var-rust/
 !/var/.gitkeep
 /dist/
+/dist-rust/
 /build/
 /.netlify/
 /config.php
@@ -8,4 +10,7 @@
 *.log
 nohup.out
 *.zip
+/muke.toml
 cookies*.txt
+/target/
+/tests/rust/__pycache__/

@@ -1,0 +1,76 @@
+{
+  "id": "rss",
+  "name": "RSS 订阅",
+  "description": "订阅多个 RSS/Atom 源：条目以订阅卡片展示在独立标签页，可选并入首页动态列表；退订时可连带删除相关动态。",
+  "label_color": "#f26522",
+  "timeline_field": "in_feed",
+  "supports_history": true,
+  "fields": [
+    {
+      "key": "auto_delete",
+      "label": "自动删除过期动态",
+      "type": "select",
+      "options": {
+        "1": "开启（默认）",
+        "0": "关闭"
+      },
+      "default": "1"
+    },
+    {
+      "key": "retention_days",
+      "label": "保留天数",
+      "type": "number",
+      "min": 1,
+      "max": 36500,
+      "default": 30,
+      "hint": "按条目发布时间计算，同步时删除超过此天数的动态及图片，过期条目不再导入"
+    },
+    {
+      "key": "sync_minutes",
+      "label": "同步间隔（分钟）",
+      "type": "number",
+      "min": 5,
+      "max": 1440,
+      "default": 30
+    },
+    {
+      "key": "max_items",
+      "label": "每次每源同步（条）",
+      "type": "number",
+      "min": 1,
+      "max": 50,
+      "default": 10,
+      "hint": "常规同步每个订阅源最多取回的最近条目数"
+    },
+    {
+      "key": "history_limit",
+      "label": "历史同步上限（条/源）",
+      "type": "number",
+      "min": 1,
+      "max": 500,
+      "default": 30,
+      "hint": "「同步历史」时每个源一次最多导入的条数；已删除过的条目受墓碑保护不会恢复"
+    },
+    {
+      "key": "in_feed",
+      "label": "并入首页动态列表",
+      "type": "select",
+      "options": [
+        "关闭（默认）",
+        "开启"
+      ],
+      "default": "0",
+      "hint": "开启后订阅条目同时出现在首页日常动态；关闭时只在「RSS 订阅」标签页展示"
+    }
+  ],
+  "page": {
+    "route": "/rss",
+    "title": "RSS 订阅",
+    "description": "RSS 订阅——聚合站长订阅的站点更新。",
+    "tab": true
+  },
+  "frontend": {
+    "module": "plugin.js",
+    "style": "plugin.css"
+  }
+}

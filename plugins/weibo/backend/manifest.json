@@ -1,0 +1,15 @@
+{
+  "id": "weibo",
+  "name": "微博动态",
+  "description": "通过 RSS/Atom 订阅源（推荐 RSSHub 微博路由）同步微博内容为动态，微博样式卡片。",
+  "label_color": "#ff8200",
+  "supports_history": true,
+  "frontend": {"module": "plugin.js", "style": "plugin.css"},
+  "fields": [
+    {"key":"feed_url","label":"订阅源地址","type":"text","required":true,"max":500,"pattern":"^https?://","hint":"如 https://rsshub.app/weibo/user/1234567890"},
+    {"key":"author","label":"博主昵称","type":"text","max":40,"hint":"卡片上显示的名字，留空用条目作者"},
+    {"key":"sync_minutes","label":"同步间隔（分钟）","type":"number","min":5,"max":1440,"default":30},
+    {"key":"max_items","label":"每次最多同步（条）","type":"number","min":1,"max":50,"default":20},
+    {"key":"show_source","label":"显示「原文」跳转","type":"select","options":{"1":"开启","0":"关闭"},"default":"1"}
+  ]
+}
