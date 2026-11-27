@@ -73,9 +73,11 @@ fn plugin_pages_and_historical_cards_are_baked() {
         );
         let query = scraper::Selector::parse("#injected, a[href^='javascript:']").unwrap();
         assert!(html.select(&query).next().is_none());
-        let query =
-            scraper::Selector::parse("nav a[href='/rss/'], nav a[href='/wallpapers/']").unwrap();
-        assert_eq!(html.select(&query).count(), 2);
+        // 左侧导航只收录声明 page.nav 的插件（壁纸）；RSS 走首页顶栏标签
+        let query = scraper::Selector::parse("nav a[href='/wallpapers/']").unwrap();
+        assert_eq!(html.select(&query).count(), 1);
+        let query = scraper::Selector::parse("nav a[href='/rss/']").unwrap();
+        assert_eq!(html.select(&query).count(), 0);
     }
     let gallery = scraper::Html::parse_document(
         &std::fs::read_to_string(root.path().join("wallpapers/index.html")).unwrap(),
@@ -126,7 +128,13 @@ async fn static_pages_in_browser() {
     let frontend = Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
     let stop = CancellationToken::new();
     let data = fixture();
-    assets::copy(&frontend, root.path(), &stop).await.unwrap();
+    let enabled: Vec<String> = data.content["state"]["plugins"]
+        .as_object()
+        .map(|plugins| plugins.keys().cloned().collect())
+        .unwrap_or_default();
+    assets::copy(&frontend, root.path(), &enabled, &stop)
+        .await
+        .unwrap();
     std::fs::write(
         root.path().join("fixture.svg"),
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>"#,

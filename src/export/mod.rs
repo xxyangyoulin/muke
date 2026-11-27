@@ -1,5 +1,6 @@
 pub mod artifact;
 pub mod assets;
+pub mod bundle;
 pub mod data;
 pub mod feeds;
 pub mod media;

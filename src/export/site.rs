@@ -19,10 +19,14 @@ pub async fn export(
 ) -> Result<Value> {
     let artifact = Artifact::new(root)?;
     let destination = artifact.path().to_owned();
-    ctx.progress("复制资源", 0, None).await?;
-    assets::copy(frontend, &destination, &ctx.stop).await?;
     ctx.progress("读取公开数据", 0, None).await?;
     let snapshot = snapshot::capture(app, &ctx.stop).await?;
+    let enabled: Vec<String> = snapshot.state["plugins"]
+        .as_object()
+        .map(|plugins| plugins.keys().cloned().collect())
+        .unwrap_or_default();
+    ctx.progress("复制资源", 0, None).await?;
+    assets::copy(frontend, &destination, &enabled, &ctx.stop).await?;
     let data = data::build(app, snapshot, &destination, &ctx.stop).await?;
     ctx.progress("生成页面", 0, None).await?;
     pages::write(frontend, &destination, &data, &ctx.stop)?;

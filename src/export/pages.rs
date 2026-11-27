@@ -52,6 +52,7 @@ pub fn write(
     let mut plugin_pages = std::collections::BTreeMap::new();
     let mut styles = String::new();
     let mut navigation = String::new();
+    let mut first_plugin_route = None;
     if let Some(items) = state["plugins"].as_object() {
         for (id, item) in items {
             if let Some(style) = item["style"].as_str() {
@@ -62,12 +63,35 @@ pub fn write(
             }
             if let Some(route) = item["page"]["route"].as_str() {
                 let route = format!("{}/", route.trim_end_matches('/'));
-                navigation.push_str(&format!(
-                    r#"<a href="{}" data-nav="{}"><span class="nav-text">{}</span></a>"#,
-                    escape(&route),
-                    escape(route.trim_matches('/')),
-                    text(&item["page"], "title")
-                ));
+                if first_plugin_route.is_none() {
+                    first_plugin_route = Some(route.clone());
+                }
+                // 与 PHP 端一致：声明了 page.nav 的插件进左侧导航（图标/标签/计数徽标），
+                // 仅 page.tab 的插件（如 RSS）走首页顶栏标签
+                if let Some(nav) = item["page"]["nav"].as_object() {
+                    let label = nav
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .or_else(|| item["page"]["title"].as_str())
+                        .unwrap_or("");
+                    let count = if nav.get("count") == Some(&Value::Bool(true)) {
+                        format!(
+                            r#"<span class="nav-count" data-plugin-count="{}">—</span>"#,
+                            escape(id)
+                        )
+                    } else {
+                        String::new()
+                    };
+                    navigation.push_str(&format!(
+                        r#"<a href="{}" data-nav="{}" title="{}"><span data-icon="{}"></span><span class="nav-text">{}</span>{}</a>"#,
+                        escape(&route),
+                        escape(id),
+                        escape(label),
+                        escape(nav.get("icon").and_then(Value::as_str).unwrap_or("grid")),
+                        escape(label),
+                        count
+                    ));
+                }
                 pages.push((route.clone(), None));
                 plugin_pages.insert(route, (id, &item["page"]));
             }
@@ -103,8 +127,14 @@ pub fn write(
             .map(|article| text(article, "excerpt"))
             .or_else(|| plugin_page.map(|(_, page)| text(page, "description")))
             .unwrap_or_else(|| text(&state["options"], "site_description"));
+        // 打包后的产物只有一个经典脚本；回退为模块化时保留 registry + module 两个标签
+        let scripts = if destination.join("assets/registry.js").exists() {
+            r#"<script src="/assets/registry.js"></script><script type="module" src="/assets/app.js"></script>"#
+        } else {
+            r#"<script src="/assets/app.js"></script>"#
+        };
         let mut head = format!(
-            r##"<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>{title}</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="{}"><meta property="og:site_name" content="{}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="{title}"><meta name="twitter:description" content="{description}"><link rel="alternate" type="application/rss+xml" href="/rss.xml"><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/registry.js"></script><script type="module" src="/assets/app.js"></script>"##,
+            r##"<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>{title}</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="{}"><meta property="og:site_name" content="{}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="{title}"><meta name="twitter:description" content="{description}"><link rel="alternate" type="application/rss+xml" href="/rss.xml"><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/style.css">{scripts}"##,
             if article.is_some() {
                 "article"
             } else {
@@ -203,7 +233,14 @@ pub fn write(
             }
             body.push_str("</section>");
         }
-        let html = page_shell(&shell, &head, &embedded, &body, profile)?;
+        let html = page_shell(
+            &shell,
+            &head,
+            &embedded,
+            &body,
+            profile,
+            first_plugin_route.as_deref().unwrap_or("/articles/"),
+        )?;
         let path = destination
             .join(route.trim_start_matches('/'))
             .join("index.html");
@@ -236,6 +273,7 @@ fn page_shell(
     embedded: &str,
     body: &str,
     profile: &Value,
+    explore: &str,
 ) -> Result<String> {
     static ADMIN: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r#"(?s)<a\b[^>]*href="/admin"[^>]*>.*?</a>|<button\b[^>]*id="new-post"[^>]*>.*?</button>"#).unwrap()
@@ -244,6 +282,16 @@ fn page_shell(
         .replace_all(shell, "")
         .into_owned()
         .replace("木刻", &text(profile, "name"));
+    // 与 PHP 静态页一致：访客的「探索风景」入口指向第一个插件页（无则文章列表）
+    let explore = format!(
+        r#"<a class="primary publish-button" id="new-post" href="{}" title="探索风景"><span data-icon="image"></span><span class="nav-text">探索风景</span></a>"#,
+        escape(explore)
+    );
+    html = html.replacen(
+        r#"<div class="sidebar-bottom">"#,
+        &format!(r#"{explore}<div class="sidebar-bottom">"#),
+        1,
+    );
     let start = html.find("<head>").context("前端页面缺少 head")? + 6;
     let end = html.find("</head>").context("前端页面缺少 head 结束标记")?;
     html.replace_range(start..end, head);
@@ -284,10 +332,14 @@ mod tests {
                 Some("true")
             );
             assert!(
-                html.select(&selector("#new-post, nav [data-nav=admin], #injected"))
+                html.select(&selector("nav [data-nav=admin], #injected"))
                     .next()
                     .is_none()
             );
+            // 静态访客入口「探索风景」复用 #new-post（与 PHP 一致）
+            let explore = html.select(&selector("#new-post")).next().unwrap();
+            let link = explore.value().attr("href").unwrap_or_default();
+            assert!(link.starts_with('/'), "探索风景入口：{link}");
             assert!(
                 html.select(&selector(
                     "#edit-form, #confirm-delete, #confirm-plugin-remove"

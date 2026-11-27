@@ -46,7 +46,8 @@ const {openPage} = require('../cdp.cjs');
   await until(`document.querySelector('#post-list')?.textContent.includes('静态动态正文')`);
   assert.equal(await page.evalJs('document.title'), '静态测试站 · 记录');
   assert.ok(await page.evalJs(`document.querySelector('.post-movie-card').textContent.includes('电影 <img') && document.querySelector('.post-weibo-card').textContent.includes('微博正文')`));
-  await page.evalJs(`document.querySelector('nav [data-nav="rss"]').click()`);
+  // RSS 是首页顶栏标签（page.tab），不走左侧导航（与 PHP 一致）
+  await page.evalJs(`document.querySelector('.top-tabs a[href="/rss/"]').click()`);
   await until(`document.querySelector('#rss-list')?.textContent.includes('订阅标题')`);
   await page.evalJs(`document.querySelector('nav [data-nav="wallpapers"]').click()`);
   await until(`!!document.querySelector('.tile-preview') && !document.querySelector('#baked-body')`);

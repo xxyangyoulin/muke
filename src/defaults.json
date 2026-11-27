@@ -21,5 +21,6 @@
     "backup_interval_hours": "24",
     "backup_keep": "7",
     "profile_bio": "记录日常的微小瞬间，收集值得停留的风景。",
-    "profile_handle": "muke"
+    "profile_handle": "muke",
+    "giscus_refresh_hours": "24"
 }

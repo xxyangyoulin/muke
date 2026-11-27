@@ -86,6 +86,7 @@ export function adminSectionHTML() {
      ${field('giscus_repo', 'GitHub 仓库（data-repo）', inp('giscus_repo', 'text', opts.giscus_repo, 'placeholder="所有者/仓库名"'))}
      ${field('giscus_repo_id', '仓库 ID（data-repo-id）', inp('giscus_repo_id', 'text', opts.giscus_repo_id, 'placeholder="R_…"'))}
      ${field('giscus_category_id', '分类 ID（data-category-id）', inp('giscus_category_id', 'text', opts.giscus_category_id, 'placeholder="DIC_…"'))}
+     ${field('giscus_refresh_hours', '计数刷新间隔（小时，0 = 每次导出都查询）', inp('giscus_refresh_hours', 'number', opts.giscus_refresh_hours ?? 24, 'min="0" max="720"'))}
     </div><p class="small-label">文章和动态分别关联独立讨论；原生评论的审核、频控、邮件及反垃圾设置不作用于 giscus。</p></div>
     <div class="option-group embed-group${thirdParty ? '' : ' hidden'}"><h4>第三方嵌入</h4><div class="options-grid">
      ${field('comment_embed_url', '嵌入地址', inp('comment_embed_url', 'text', opts.comment_embed_url, `placeholder="${embedHints[provider] || '见各系统文档'}"`))}

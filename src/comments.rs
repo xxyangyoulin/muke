@@ -704,3 +704,131 @@ mod submit_tests {
         assert_eq!(fixture.lock().unwrap().requests.len(), 1);
     }
 }
+
+/// 导出用的 giscus 计数带缓存：`giscus_refresh_hours` 小时内的结果直接复用（0 表示每次都查），
+/// 只对新增或过期的 term 发起网络查询。
+pub async fn giscus_counts_cached(
+    app: &App,
+    terms: &[String],
+    stop: &CancellationToken,
+) -> Result<BTreeMap<String, Value>> {
+    let settings = Settings::load(app).await?;
+    let ttl = (settings.number("giscus_refresh_hours").max(0) as i64) * 3600;
+    let mut counts = BTreeMap::new();
+    let mut stale: Vec<String> = Vec::new();
+    if ttl > 0 {
+        let now = chrono::Utc::now().timestamp();
+        for term in terms {
+            let row: Option<(String, String)> =
+                sqlx::query_as("SELECT counts,fetched_at FROM giscus_counts WHERE term=?")
+                    .bind(term)
+                    .fetch_optional(&app.db)
+                    .await?;
+            let fresh = row
+                .as_ref()
+                .and_then(|(_, fetched)| chrono::DateTime::parse_from_rfc3339(fetched).ok())
+                .map(|fetched| now - fetched.timestamp() < ttl)
+                .unwrap_or(false);
+            if fresh && let Some(value) = serde_json::from_str(&row.unwrap().0).ok() {
+                counts.insert(term.clone(), value);
+            } else {
+                stale.push(term.clone());
+            }
+        }
+    } else {
+        stale = terms.to_vec();
+    }
+    if stale.is_empty() {
+        return Ok(counts);
+    }
+    let fetched = giscus_counts(&app.network, &repo_of(&settings), &stale, stop).await?;
+    let now = app.config.now();
+    let mut tx = app.db.begin_with("BEGIN IMMEDIATE").await?;
+    for term in &stale {
+        if let Some(value) = fetched.get(term) {
+            sqlx::query("INSERT INTO giscus_counts(term,counts,fetched_at) VALUES(?,?,?) ON CONFLICT(term) DO UPDATE SET counts=excluded.counts,fetched_at=excluded.fetched_at")
+                .bind(term)
+                .bind(value.to_string())
+                .bind(&now)
+                .execute(&mut *tx)
+                .await?;
+            counts.insert(term.clone(), value.clone());
+        }
+    }
+    tx.commit().await?;
+    Ok(counts)
+}
+
+fn repo_of(settings: &Settings) -> String {
+    settings.get("giscus_repo").to_owned()
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use crate::{config::Config, database, network, plugins, tasks};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn giscus_cache_reuses_fresh_rows_and_refetches_stale() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let fixture = Arc::new(Mutex::new(network::TestResponses::default()));
+        let mut client = network::Client::new(None);
+        client.fixture = Some(fixture.clone());
+        let app = App {
+            db: database::open(&data).await.unwrap(),
+            tasks: tasks::open(&root.path().join("work")).await.unwrap(),
+            network: client,
+            data,
+            config: Arc::new(Config::default()),
+            shutdown: CancellationToken::new(),
+            password_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            media_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            content_lock: Arc::new(tokio::sync::RwLock::new(())),
+        };
+        plugins::migrate(&app).await.unwrap();
+        for (key, value) in [
+            ("comment_provider", "giscus"),
+            ("giscus_repo", "owner/repo"),
+            ("giscus_refresh_hours", "24"),
+        ] {
+            sqlx::query("INSERT INTO settings VALUES(?,?)")
+                .bind(key)
+                .bind(value)
+                .execute(&app.db)
+                .await
+                .unwrap();
+        }
+        fixture.lock().unwrap().responses.insert(
+            "https://giscus.app/api/discussions?repo=owner%2Frepo&term=post%3A1&strict=true&first=50&after="
+                .into(),
+            br#"{"discussion":{"totalCommentCount":1,"totalReplyCount":0,"reactions":{"HEART":{"count":2}},"pageInfo":{"hasNextPage":false}}}"#
+                .to_vec(),
+        );
+        let terms = vec!["post:1".to_owned()];
+        let stop = CancellationToken::new();
+        let first = giscus_counts_cached(&app, &terms, &stop).await.unwrap();
+        assert_eq!(first["post:1"], json!({"comments":1,"likes":2}));
+        assert_eq!(fixture.lock().unwrap().requests.len(), 1);
+        // TTL 内第二次查询直接复用缓存，不发请求
+        let second = giscus_counts_cached(&app, &terms, &stop).await.unwrap();
+        assert_eq!(second["post:1"], json!({"comments":1,"likes":2}));
+        assert_eq!(fixture.lock().unwrap().requests.len(), 1);
+        // 过期后重新查询
+        sqlx::query("UPDATE giscus_counts SET fetched_at='2020-01-01T00:00:00+00:00'")
+            .execute(&app.db)
+            .await
+            .unwrap();
+        let third = giscus_counts_cached(&app, &terms, &stop).await.unwrap();
+        assert_eq!(third["post:1"], json!({"comments":1,"likes":2}));
+        assert_eq!(fixture.lock().unwrap().requests.len(), 2);
+        // 间隔为 0：始终查询
+        sqlx::query("UPDATE settings SET value='0' WHERE key='giscus_refresh_hours'")
+            .execute(&app.db)
+            .await
+            .unwrap();
+        giscus_counts_cached(&app, &terms, &stop).await.unwrap();
+        assert_eq!(fixture.lock().unwrap().requests.len(), 3);
+    }
+}

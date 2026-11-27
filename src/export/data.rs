@@ -53,13 +53,7 @@ pub async fn build(
                     .map(|post| format!("post:{}", post["id"])),
             );
         }
-        crate::comments::giscus_counts(
-            &app.network,
-            state["options"]["giscus_repo"].as_str().unwrap_or(""),
-            &terms,
-            stop,
-        )
-        .await?
+        crate::comments::giscus_counts_cached(app, &terms, stop).await?
     } else {
         BTreeMap::new()
     };

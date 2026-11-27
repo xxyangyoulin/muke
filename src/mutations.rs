@@ -450,6 +450,7 @@ async fn validate_settings(app: &App, input: &Value) -> Result<Vec<(String, Stri
             "reading_chars_per_minute" => Some((50, 3000)),
             "comment_rate_seconds" => Some((0, 3600)),
             "auto_deploy_debounce" => Some((1, 1440)),
+            "giscus_refresh_hours" => Some((0, 720)),
             "smtp_port" => Some((1, 65535)),
             _ => None,
         };

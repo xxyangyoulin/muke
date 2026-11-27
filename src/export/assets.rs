@@ -3,10 +3,16 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
-pub async fn copy(frontend: &Path, destination: &Path, stop: &CancellationToken) -> Result<()> {
+pub async fn copy(
+    frontend: &Path,
+    destination: &Path,
+    enabled: &[String],
+    stop: &CancellationToken,
+) -> Result<()> {
     let frontend = frontend.to_owned();
     let destination = destination.to_owned();
     let stop = stop.clone();
+    let enabled = enabled.to_vec();
     tokio::task::spawn_blocking(move || {
         if !std::fs::symlink_metadata(&frontend)?.is_dir() {
             bail!("前端目录不能是符号链接");
@@ -22,6 +28,7 @@ pub async fn copy(frontend: &Path, destination: &Path, stop: &CancellationToken)
             .parent()
             .context("前端目录缺少父目录")?
             .join("plugins");
+
         if !std::fs::symlink_metadata(&root)?.is_dir() {
             bail!("插件目录不能是符号链接");
         }
@@ -37,6 +44,22 @@ pub async fn copy(frontend: &Path, destination: &Path, stop: &CancellationToken)
                 }
             }
             copy_tree(&source, &destination.join("plugins").join(id), false, &stop)?;
+        }
+        // 静态产物合并前端模块为单文件（循环依赖等异常时保留模块化复制）；
+        // 须在插件目录复制之后执行，才能一并删除产物内的模块副本
+        let modules: Vec<_> = enabled
+            .iter()
+            .filter_map(|id| {
+                let file = plugins::get(id).ok()?.manifest()["frontend"]["module"].as_str()?;
+                Some(super::bundle::PluginModule {
+                    id: id.clone(),
+                    source: root.join(id).join("frontend").join(file),
+                    destination: destination.join("plugins").join(id).join(file),
+                })
+            })
+            .collect();
+        if let Err(error) = super::bundle::bundle(&assets, &destination.join("assets"), &modules) {
+            tracing::warn!(%error, "前端打包失败，静态产物保留模块化文件");
         }
         if stop.is_cancelled() {
             bail!("任务已取消");
@@ -136,7 +159,7 @@ mod tests {
         std::fs::write(destination.join("assets/content.json"), "fresh content").unwrap();
         std::fs::write(destination.join("assets/articles.json"), "fresh articles").unwrap();
         let stop = CancellationToken::new();
-        copy(&frontend, &destination, &stop).await.unwrap();
+        copy(&frontend, &destination, &[], &stop).await.unwrap();
         assert_eq!(
             std::fs::read_to_string(destination.join("assets/content.json")).unwrap(),
             "fresh content"
@@ -152,14 +175,14 @@ mod tests {
         assert!(!destination.join("server.rs").exists());
         std::os::unix::fs::symlink(frontend.join("server.rs"), assets.join("leak.js")).unwrap();
         assert!(
-            copy(&frontend, &root.path().join("bad"), &stop)
+            copy(&frontend, &root.path().join("bad"), &[], &stop)
                 .await
                 .is_err()
         );
         assert!(!root.path().join("bad/assets/leak.js").exists());
         stop.cancel();
         assert!(
-            copy(&frontend, &root.path().join("cancelled"), &stop)
+            copy(&frontend, &root.path().join("cancelled"), &[], &stop)
                 .await
                 .is_err()
         );

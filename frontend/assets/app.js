@@ -128,11 +128,29 @@ if(!store.isStatic)document.querySelector('#new-post').onclick=()=>{
  if(store.state?.admin){if(store.page==='feed'||store.page==='admin')document.querySelector('#compose-content')?.focus();else goto('/admin');}else goto('/admin');
 };
 document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
+// 插件侧栏导航：声明 page.nav 的插件（如壁纸收藏）注入左侧菜单，图标与计数徽标与静态烘焙一致
+function injectPluginNav(){
+ const nav = document.querySelector('nav');
+ if (!nav) return;
+ for (const [id, plugin] of Object.entries(store.state?.plugins || {})) {
+  const n = plugin.page?.nav;
+  if (!n || nav.querySelector(`[data-nav="${id}"]`)) continue;
+  const a = document.createElement('a');
+  a.href = plugin.page.route + '/';
+  a.dataset.nav = id;
+  a.title = n.label || plugin.page.title;
+  a.innerHTML = `<span data-icon="${n.icon || 'grid'}"></span><span class="nav-text">${esc(n.label || plugin.page.title)}</span>${n.count ? `<span class="nav-count" data-plugin-count="${id}">—</span>` : ''}`;
+  nav.insertBefore(a, nav.querySelector('[data-nav="admin"]') || null);
+ }
+ // 启动期的全局图标填充早于本函数，这里补齐新插入的节点
+ nav.querySelectorAll('[data-icon]').forEach(el => { if (!el.innerHTML) el.innerHTML = icon(el.dataset.icon); });
+}
 async function init(){
  try{
   if(store.isStatic){const d=embeddedJson('embedded-content')??await(await fetch('/assets/content.json').then(r=>{if(!r.ok)throw new Error('静态数据加载失败');return r.json();}));store.state=d.state;store.posts=d.posts;store.pluginsData=d.plugins||{};store.pluginsMeta=d.plugins_meta||{};}
   else{const results=await Promise.all([api('state'),api('posts')]);store.state=results[0];store.posts=results[1].posts;}
   store.baseTitle = [store.state.profile.name, store.state.options?.site_tagline].filter(Boolean).join(' · ');
+  injectPluginNav();
   await loadPluginAssets();
   if (!store.isStatic && store.state.options?.comment_provider !== 'giscus') { try { const lk = await apiGet('likes', { token: store.likeToken }); store.likedIds = new Set(lk.liked); } catch {} }
   if (store.isStatic) { await modulesReady(); await loadArticles().catch(() => {}); } // 静态：文章一并就绪，首帧渲染即完整结构（只出现一次「加载→内容」切换，无结构闪变）
