@@ -87,7 +87,7 @@ def main():
             assert guest.call('cancel-task',{'id':1})[0]==401
             try:guest.http.open(base+'/api/tasks/events');raise AssertionError('SSE must require admin')
             except urllib.error.HTTPError as error:assert error.code==401
-            for path in ['/plugins/rss/backend/mod.rs','/plugins/rss/manifest.json','/plugins/rss/plugin.php']:
+            for path in ['/plugins/rss/backend/mod.rs','/plugins/rss/manifest.json']:
                 try:guest.http.open(base+path);raise AssertionError('backend plugin files must not be served')
                 except urllib.error.HTTPError as error:assert error.code==404
             assert guest.http.open(base+'/plugins/rss/plugin.js').status==200
@@ -308,7 +308,7 @@ def main():
             assert admin.call('save-plugin',{'id':'douban','values':{'history_limit':501}})[0]==422
             assert admin.call('save-plugin',{'id':'douban','values':{'user_id':'tester123','category':'wish','history_limit':35}})[0]==200
             assert guest.http.open(base+'/plugins/douban/plugin.js').status==200
-            for path in ['/plugins/douban/backend/mod.rs','/plugins/douban/manifest.json','/plugins/douban/plugin.php']:
+            for path in ['/plugins/douban/backend/mod.rs','/plugins/douban/manifest.json']:
                 try:guest.http.open(base+path);raise AssertionError('backend plugin files must not be served')
                 except urllib.error.HTTPError as error:assert error.code==404
             cover_name='d'*32+'.png';(data/'uploads'/cover_name).write_bytes(image)

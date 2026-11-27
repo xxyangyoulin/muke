@@ -260,7 +260,7 @@ impl Plugin for Dms {
 mod tests {
     use super::*;
     #[test]
-    fn event_keys_match_php_unicode_and_path_encoding() {
+    fn event_keys_preserve_unicode_and_path_encoding() {
         assert_eq!(
             event_key(
                 "/home/test/桌面",

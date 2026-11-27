@@ -21,7 +21,7 @@ export function optionsFormHTML() {
    ['locale','界面语言','text','如 zh-CN / en-US'],
   ]],
   ['日期与阅读', [
-   ['date_format','阅读页日期格式','text','PHP date() 格式'],
+   ['date_format','阅读页日期格式','text','格式示例：Y-m-d H:i'],
    ['date_format_short','列表日期格式','text',''],
    ['feed_time_style','动态时间显示','select','', [['','中文时间（默认）'],['compact','紧凑数字 11-22 13:19'],['ago','相对时间 x 分钟前'],['date','只显示日期'],['none','不显示']]],
    ['reading_chars_per_minute','阅读速度（字/分钟）','number','估算阅读时长用'],

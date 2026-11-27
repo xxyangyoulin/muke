@@ -1,5 +1,5 @@
 // 豆瓣动态 · 前端卡片渲染器（movie）
-// 与 plugin.php 的 render_post 成对：无 JS 时由静态烘焙版本呈现。
+// 与 后端的 render_post 成对：无 JS 时由静态烘焙版本呈现。
 // 通过 MKBLOG.registerCard 注册，meta.card = 'movie' 的动态会使用本卡片。
 MKBLOG.registerCard('movie', post => {
  const m = post.meta || {};

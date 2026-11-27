@@ -15,7 +15,7 @@ pub fn article(article: &Value) -> String {
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH,
     );
     // 先按源码区间合并相邻文本事件（pulldown 会把疑似定界符的下划线拆成独立事件），
-    // 再做 Parsedown 兼容处理：保留其转义集之外的反斜杠、允许词内 `_` 强调（闭合端
+    // 再做 文本格式处理：保留其转义集之外的反斜杠、允许词内 `_` 强调（闭合端
     // 只要求词边界）、裸 URL 转链接。
     let mut events = Vec::new();
     let mut literal_depth = 0usize;
@@ -136,7 +136,7 @@ pub fn article(article: &Value) -> String {
     )
 }
 
-/// 按 Parsedown 语义在一段文本内拆出 `_`/`__` 强调（闭合端才要求词边界）。
+/// 按词内强调规则在一段文本内拆出 `_`/`__` 强调（闭合端才要求词边界）。
 /// 下划线出现在 URL 匹配范围内时跳过，交给后续裸链接处理。
 fn split_underscore(text: &str, escaped: &[bool]) -> Vec<pulldown_cmark::Event<'static>> {
     use pulldown_cmark::{Event, Tag, TagEnd};
@@ -193,7 +193,7 @@ fn split_underscore(text: &str, escaped: &[bool]) -> Vec<pulldown_cmark::Event<'
     events
 }
 
-/// 从 open 起按 Parsedown 的 `_`（Em）/`__`（Strong）正则找闭合，返回 (内容结束, 整体结束)。
+/// 从 open 起按 `_`（Em）/`__`（Strong）正则找闭合，返回 (内容结束, 整体结束)。
 fn underscore_close(text: &str, open: usize) -> Option<(usize, usize)> {
     let bytes = text.as_bytes();
     let strong = bytes.get(open + 1) == Some(&b'_');

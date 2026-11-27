@@ -8,10 +8,15 @@
 .netlify
 .export-*
 .dist-previous-*
-config.php
 var
 dist
 build
 *.zip
 *.log
 cookies*.txt
+target
+var-rust
+dist-rust
+muke.toml
+muke-plugins
+**/target

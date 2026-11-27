@@ -1,4 +1,4 @@
-name: Rust rebuild
+name: Rust CI
 
 on:
   push:
@@ -12,18 +12,17 @@ on:
       - 'tests/*.rs'
       - 'frontend/**'
       - 'tests/rust/**'
+      - 'tests/run.sh'
+      - 'tests/fixtures/**'
       - 'examples/standalone-plugin/**'
-      - 'public/assets/**'
       - 'tests/cdp.cjs'
-      - 'tests/fixtures/rss/**'
-      - 'app.php'
-      - 'config.default.php'
-      - 'public/index.php'
       - 'src/**'
       - 'plugins/**'
-      - 'bin/**'
       - 'scripts/**'
-      - 'Dockerfile.rust'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose.yml'
+      - '.github/workflows/release.yml'
       - 'docs/**'
       - '.github/workflows/rust.yml'
   pull_request:
@@ -35,18 +34,17 @@ on:
       - 'tests/*.rs'
       - 'frontend/**'
       - 'tests/rust/**'
+      - 'tests/run.sh'
+      - 'tests/fixtures/**'
       - 'examples/standalone-plugin/**'
-      - 'public/assets/**'
       - 'tests/cdp.cjs'
-      - 'tests/fixtures/rss/**'
-      - 'app.php'
-      - 'config.default.php'
-      - 'public/index.php'
       - 'src/**'
       - 'plugins/**'
-      - 'bin/**'
       - 'scripts/**'
-      - 'Dockerfile.rust'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose.yml'
+      - '.github/workflows/release.yml'
       - 'docs/**'
       - '.github/workflows/rust.yml'
   workflow_dispatch:
@@ -56,7 +54,7 @@ permissions:
   contents: read
 
 jobs:
-  prototype:
+  test:
     runs-on: ubuntu-latest
     env:
       CHROME_BIN: /usr/bin/google-chrome
@@ -70,10 +68,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: pdo_sqlite, sqlite3, mbstring, curl, fileinfo, zip
       - name: Install ImageMagick and Chrome
         run: |
           sudo apt-get update -qq
@@ -83,26 +77,9 @@ jobs:
             wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
             sudo apt-get install -y -qq ./google-chrome-stable_current_amd64.deb
           fi
-      - name: Rust checks
-        run: |
-          cargo fmt --check
-          cargo fmt --manifest-path examples/standalone-plugin/Cargo.toml --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-          cargo build --locked
-          while IFS= read -r -d '' file; do
-            node --input-type=module --check < "$file"
-          done < <(find frontend plugins examples/standalone-plugin/frontend -name '*.js' -print0)
-      - name: API, browser and task contracts
-        run: |
-          cargo test --locked --test rust_export -- --ignored
-          python3 tests/rust/core.py
-          python3 tests/rust/contract.py --report /tmp/muke-rust-baseline.json
-          python3 tests/rust/plugins.py
-          python3 tests/rust/wallpapers.py
-          python3 tests/rust/external.py
-          python3 tests/rust/llm.py
+      - name: Rust, API, browser and task checks
+        run: bash tests/run.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: rust-prototype-baseline
+          name: rust-contract-report
           path: /tmp/muke-rust-baseline.json

@@ -13,14 +13,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  php-test:
-    uses: ./.github/workflows/ci.yml
-
   rust-test:
     uses: ./.github/workflows/rust.yml
 
   build:
-    needs: [php-test, rust-test]
+    needs: rust-test
     strategy:
       fail-fast: false
       matrix:

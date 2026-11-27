@@ -1,10 +1,10 @@
 # MUKE（Rust 版）安装与升级
 
-Rust 版是一个单二进制服务（内嵌数据库迁移与网络栈，静态链接 curl/OpenSSL），媒体处理依赖系统 `magick`（ImageMagick）。PHP 版的功能对等说明见仓库中的 [Rust 实现记录](https://github.com/xxyangyoulin/muke/blob/master/docs/rust-prototype.md)。
+Rust 版是一个单二进制服务（内嵌数据库迁移与网络栈，静态链接 curl/OpenSSL），媒体处理依赖系统 `magick`（ImageMagick）。
 
 ## 安装（Linux x86_64 / aarch64）
 
-GitHub Release 二进制在 Ubuntu 24.04 原生构建，需要 glibc 2.39 或更高版本。较旧系统可在本机编译，或从源码使用 `Dockerfile.rust` 构建镜像。
+GitHub Release 二进制在 Ubuntu 24.04 原生构建，需要 glibc 2.39 或更高版本。较旧系统可在本机编译，或从源码使用 `Dockerfile` 构建镜像。
 
 先安装 ImageMagick：Arch 使用 `sudo pacman -S imagemagick`；Debian/Ubuntu 使用 `sudo apt install imagemagick`。ImageMagick 6 仅提供 `convert` 时，创建命令链接：
 
@@ -44,38 +44,35 @@ journalctl -u muke -f
 
 ## Docker
 
+在源码根目录运行：
+
 ```sh
-docker build -f Dockerfile.rust -t muke .
-docker run -d -p 8785:8785 \
-  -v $PWD/data:/opt/muke/data \
-  -v $PWD/muke.toml:/opt/muke/muke.toml:ro \
-  -v $PWD/dist:/opt/muke/dist \
-  muke
+docker compose up -d --build
 ```
 
-容器内已包含 ImageMagick；数据与导出目录必须挂载出来持久化。
+默认仅向本机开放 8785 端口，数据与导出文件使用命名卷持久化。首次访问 `http://127.0.0.1:8785/admin` 创建管理员。远程访问可使用 SSH 隧道或配置 HTTPS 反向代理。
 
-## 从 PHP 版迁移
+自定义配置可将 `muke.toml` 只读挂载到 `/opt/muke/muke.toml`。容器路径使用 `/opt/muke/data`、`/opt/muke/frontend`、`/opt/muke/dist`；绑定宿主目录时需确保容器用户有写权限。源码编译独立插件还需要安装 Rust 工具链、Git 及构建依赖，默认运行镜像未包含这些工具。
 
-1. 停止 PHP 写入：`pm2 stop mkblog-sync`，并暂停 Web 入口（Nginx 指向维护页或直接停 PHP-FPM）。
-2. 在旧安装目录做最终完整备份：`php bin/backup.php /安全路径/final-backup.zip`。
-3. 转换配置：`php bin/rust-migrate-config.php config.php muke.toml`，按需补充 `listen` / `frontend` / `export_dir`。
-4. 恢复数据到新目录（Rust 与 PHP 不能同时写同一份数据）：
+## 旧版本数据迁移
+
+1. 停止旧服务写入，使用旧版本的完整备份功能保存最终备份。
+2. 按配置示例创建 `muke.toml`，核对代理、时区和插件目录等本地设置。
+3. 将完整备份恢复到新的空目录，避免与旧服务共用数据：
 
    ```sh
-   mkdir /opt/muke/data-empty
-   ./muke --data-dir /opt/muke/data restore final-backup.zip /opt/muke/data-empty
-   mv /opt/muke/data-empty /opt/muke/data
+   ./muke restore final-backup.zip /opt/muke/data-new
    ```
 
-5. `./muke check` → 启动 → 后台核对内容、任务页、静态导出与部署；确认后切换 Nginx 入口。
-6. 壁纸目录等插件资源：恢复库的设置表已指向恢复目录内的副本，可在后台改回原路径。
+4. 将 `data_dir` 指向恢复目录，运行 `./muke check`，启动后核对内容、图片、插件、任务和静态导出，再切换入口。
+
+支持核心 schema_versions 版本为 4 的旧数据库，以及已使用数据库迁移表的 Rust 版本。更早的数据需先由对应旧版本升级；不支持直接导入任意旧库。
 
 ## 回退
 
-回退使用切换前的备份与对应 PHP 代码，不直接把升级后的数据库交回旧程序。切换后若已产生新数据，先在 Rust 后台导出 JSON 备份核对，再恢复旧快照会丢失这部分更新。
+回退使用切换前的备份与对应版本程序，不直接把升级后的数据库交回旧程序。切换后若已产生新数据，先在 Rust 后台导出 JSON 备份核对，再恢复旧快照会丢失这部分更新。
 
-## 升级（Rust → Rust）
+## 升级
 
 替换二进制与 `frontend/`、`plugins/*/frontend/` 后重启即可；数据库迁移在启动时自动执行。升级前建议在后台开启定期备份，或停止服务后手动 `./muke backup <路径>`。
 

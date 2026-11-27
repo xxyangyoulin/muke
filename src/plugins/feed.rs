@@ -63,7 +63,7 @@ pub fn timestamp(value: &str, timezone: chrono_tz::Tz) -> Option<i64> {
             return Some(date.timestamp());
         }
     }
-    // 命名 UTC/GMT 时区后缀按 UTC 解释（与 PHP strtotime 一致）
+    // 命名 UTC/GMT 时区后缀按 UTC 解释
     let zoneless = value.trim();
     let (zoneless, utc_named) = match zoneless
         .rsplit_once(' ')
@@ -76,7 +76,7 @@ pub fn timestamp(value: &str, timezone: chrono_tz::Tz) -> Option<i64> {
         let zone = if utc_named { chrono_tz::UTC } else { timezone };
         match zone.from_local_datetime(&naive) {
             chrono::LocalResult::Single(date) => Some(date.timestamp()),
-            // 回拨产生的重复小时：PHP timelib 随时区符号取舍——标准侧偏移为负取第一次
+            // 回拨产生的重复小时：标准侧偏移为负取第一次
             // （夏令时侧），否则取第二次（标准侧）；与 America/New_York、Europe/Berlin、
             // Australia/Sydney 的实测一致
             chrono::LocalResult::Ambiguous(earliest, latest) => Some(
@@ -87,7 +87,7 @@ pub fn timestamp(value: &str, timezone: chrono_tz::Tz) -> Option<i64> {
                 }
                 .timestamp(),
             ),
-            // 春令时跳跃产生的不存在本地时间：按跳跃后的偏移前移（与 PHP 一致）
+            // 春令时跳跃产生的不存在本地时间：按跳跃后的偏移前移
             chrono::LocalResult::None => zone
                 .from_local_datetime(&(naive + chrono::Duration::hours(1)))
                 .earliest()
@@ -100,7 +100,7 @@ pub fn timestamp(value: &str, timezone: chrono_tz::Tz) -> Option<i64> {
         "%Y/%m/%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%a, %d %b %Y %H:%M:%S",
-        // 小数秒与 12 小时制（PHP strtotime 接受）
+        // 小数秒与 12 小时制
         "%Y-%m-%d %H:%M:%S%.f",
         "%Y-%m-%dT%H:%M:%S%.f",
         "%Y/%m/%d %H:%M:%S%.f",
@@ -225,77 +225,59 @@ mod tests {
 }
 
 #[cfg(test)]
-mod strtotime_comparison {
+mod date_fixtures {
     use super::*;
 
-    /// 机器可读的日期格式与 PHP strtotime 逐一对照（自然语言如 now/+1 day 不在
-    /// 支持范围，属于已记录的有意分歧）。
+    // Expected timestamps were captured from the legacy parser, including DST boundaries.
     #[test]
-    fn machine_formats_match_php_strtotime() {
+    fn machine_formats_match_recorded_timestamps() {
         let cases = [
-            ("Asia/Shanghai", "2026-11-26T12:00:00Z"),
-            ("Asia/Shanghai", "Thu, 26 Nov 2026 12:00:00 +0000"),
-            ("Asia/Shanghai", "2026-11-26 20:00:00 +0800"),
-            ("Asia/Shanghai", "2026-11-26 20:00:00+08:00"),
-            ("Asia/Shanghai", "2026-11-26 20:00:00"),
-            ("Asia/Shanghai", "2026-11-26T20:00:00"),
-            ("Asia/Shanghai", "2026/11/26 20:00:00"),
-            ("Asia/Shanghai", "2026-11-26 20:00"),
-            ("Asia/Shanghai", "Thu, 26 Nov 2026 20:00:00"),
-            ("Asia/Shanghai", "Thu, 26 Nov 2026 12:00:00 GMT"),
-            ("Asia/Shanghai", "2026-11-26 12:00:00 UTC"),
-            ("Asia/Shanghai", "2026-11-26T20:00:00.123+08:00"),
-            ("Asia/Shanghai", "2026-11-26 20:00:00.123"),
-            ("Asia/Shanghai", "Thu Nov 26 20:00:00 2026"),
-            ("Asia/Shanghai", "2026-11-26 08:00:00 pm"),
-            ("Asia/Shanghai", "2026-11-26 08:00:00 AM"),
-            ("Asia/Shanghai", "26 Nov 2026"),
-            ("Asia/Shanghai", "Nov 26, 2026"),
-            ("Asia/Shanghai", "26.11.2026"),
-            ("Asia/Shanghai", "20261126"),
-            ("Asia/Shanghai", "2026-11-26"),
-            ("Asia/Shanghai", "2026/11/26"),
-            // 夏令时边界：回拨取第一次出现，跳跃前移一小时（与 PHP 一致）
-            ("America/New_York", "2026-11-01 01:30:00"),
-            ("America/New_York", "2026-03-08 02:30:00"),
-            ("America/New_York", "2026-03-08 03:30:00"),
-            ("Europe/Berlin", "2026-10-25 02:30:00"),
-            ("Europe/Berlin", "2026-03-29 02:30:00"),
+            ("Asia/Shanghai", "2026-11-26T12:00:00Z", 1795694400),
+            (
+                "Asia/Shanghai",
+                "Thu, 26 Nov 2026 12:00:00 +0000",
+                1795694400,
+            ),
+            ("Asia/Shanghai", "2026-11-26 20:00:00 +0800", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 20:00:00+08:00", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 20:00:00", 1795694400),
+            ("Asia/Shanghai", "2026-11-26T20:00:00", 1795694400),
+            ("Asia/Shanghai", "2026/11/26 20:00:00", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 20:00", 1795694400),
+            ("Asia/Shanghai", "Thu, 26 Nov 2026 20:00:00", 1795694400),
+            ("Asia/Shanghai", "Thu, 26 Nov 2026 12:00:00 GMT", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 12:00:00 UTC", 1795694400),
+            ("Asia/Shanghai", "2026-11-26T20:00:00.123+08:00", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 20:00:00.123", 1795694400),
+            ("Asia/Shanghai", "Thu Nov 26 20:00:00 2026", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 08:00:00 pm", 1795694400),
+            ("Asia/Shanghai", "2026-11-26 08:00:00 AM", 1795651200),
+            ("Asia/Shanghai", "26 Nov 2026", 1795622400),
+            ("Asia/Shanghai", "Nov 26, 2026", 1795622400),
+            ("Asia/Shanghai", "26.11.2026", 1795622400),
+            ("Asia/Shanghai", "20261126", 1795622400),
+            ("Asia/Shanghai", "2026-11-26", 1795622400),
+            ("Asia/Shanghai", "2026/11/26", 1795622400),
+            // 夏令时边界：回拨取第一次出现，跳跃前移一小时
+            ("America/New_York", "2026-11-01 01:30:00", 1793511000),
+            ("America/New_York", "2026-03-08 02:30:00", 1772955000),
+            ("America/New_York", "2026-03-08 03:30:00", 1772955000),
+            ("Europe/Berlin", "2026-10-25 02:30:00", 1792891800),
+            ("Europe/Berlin", "2026-03-29 02:30:00", 1774747800),
         ];
-        for (zone, value) in cases {
-            let output = std::process::Command::new("php")
-                .args([
-                    "-r",
-                    "date_default_timezone_set($argv[1]); $t = strtotime($argv[2]); echo $t === false ? \"FALSE\" : $t;",
-                    zone,
-                    value,
-                ])
-                .output()
-                .unwrap();
-            assert!(output.status.success());
-            let expected = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            let actual = timestamp(value, zone.parse().unwrap()).map(|v| v.to_string());
-            assert_eq!(actual.as_deref(), Some(expected.as_str()), "{zone} {value}");
+        for (zone, value, expected) in cases {
+            assert_eq!(
+                timestamp(value, zone.parse().unwrap()),
+                Some(expected),
+                "{zone} {value}"
+            );
         }
-        // PHP 同样拒绝的输入（注意：PHP 会把 2026-02-30 顺延为 3 月 2 日，
-        // Rust 按无效日期拒绝——已记录的有意分歧，真实订阅源不会出现）
-        for (zone, value) in [
-            ("Asia/Shanghai", ""),
-            ("Asia/Shanghai", "not a date"),
-            ("Asia/Shanghai", "2026-11-26 25:00:00"),
-            ("Asia/Shanghai", "2026.11.26"),
-        ] {
-            let output = std::process::Command::new("php")
-                .args([
-                    "-r",
-                    "date_default_timezone_set($argv[1]); $t = strtotime($argv[2]); echo $t === false ? \"FALSE\" : $t;",
-                    zone,
-                    value,
-                ])
-                .output()
-                .unwrap();
-            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "FALSE");
-            assert_eq!(timestamp(value, zone.parse().unwrap()), None, "{value}");
+        for value in ["", "not a date", "2026-11-26 25:00:00", "2026.11.26"] {
+            assert_eq!(
+                timestamp(value, "Asia/Shanghai".parse().unwrap()),
+                None,
+                "{value}"
+            );
         }
     }
 }

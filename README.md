@@ -26,7 +26,7 @@ cd muke-0.5.0
 ./muke serve
 ```
 
-打开 `http://127.0.0.1:8785/admin` 创建管理员。配置、systemd、Docker、升级与 PHP 数据迁移见 [安装指南](docs/rust-install.md)。
+打开 `http://127.0.0.1:8785/admin` 创建管理员。配置、systemd、Docker、升级与旧版本数据迁移见 [安装指南](docs/rust-install.md)。
 
 ## 独立插件
 
@@ -38,12 +38,14 @@ cd muke-0.5.0
 
 ## 开发
 
+需要 Rust 1.91.1+、C/C++ 工具链、Perl 和 ImageMagick；完整测试还需 Python 3、Node.js 22+ 与 Chrome。
+
 ```sh
 cargo build --locked
-cargo test --locked
+bash tests/run.sh
 cargo run -- serve
 ```
 
-后端位于 `src/`，核心前端位于 `frontend/`，内置插件位于 `plugins/<id>/`。接口边界见 [插件架构](docs/rust-plugin-boundaries.md)。旧 PHP 代码保留用于迁移与回归验证。
+后端位于 `src/`，核心前端位于 `frontend/`，内置插件位于 `plugins/<id>/`。接口边界见 [插件架构](docs/rust-plugin-boundaries.md)。
 
 MIT，见 [LICENSE](LICENSE)。

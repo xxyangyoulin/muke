@@ -27,7 +27,7 @@ pub async fn open(data: &Path) -> Result<SqlitePool> {
                 .fetch_optional(&pool)
                 .await?;
         if version != Some(4) {
-            bail!("请先使用 PHP 0.3.0 完成旧库迁移，再导入 Rust；核心版本应为 4");
+            bail!("不支持此旧数据库版本；导入数据的核心 schema_versions 版本应为 4");
         }
     }
     sqlx::migrate!("./migrations").run(&pool).await?;

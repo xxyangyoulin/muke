@@ -284,8 +284,8 @@ def main():
             assert admin.call('login',{'username':'tester','password':'Password12345'})[0]==401
             assert admin.call('login',{'username':'tester','password':'ChangedPassword123'})[0]==200
             assert admin.state()['admin']
-            # PHP bcrypt compatibility, including its $2y$ prefix.
-            legacy=subprocess.check_output(['php','-r','echo password_hash("LegacyPassword123", PASSWORD_BCRYPT);'],text=True)
+            # Existing bcrypt hashes with the $2y$ prefix remain valid.
+            legacy='$2y$12$wbNaekzw5R/T3RfFWvR.POeZhIKcmziE/JDgxUjJq4.AyIxh.Z1ly'
             with sqlite3.connect(data/'blog.sqlite') as db:db.execute('UPDATE users SET password=? WHERE id=1',(legacy,))
             third=Client(base);third.state()
             assert third.call('login',{'username':'tester','password':'LegacyPassword123'})[0]==200

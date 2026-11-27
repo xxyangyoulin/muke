@@ -1,0 +1,272 @@
+[
+  {
+    "html": "<p>\\: *literal* \\: \\@ \\= \\/ and <strong>\\:bold</strong></p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "\\: *literal* \\: \\@ \\= \\/ and \\:bold",
+      "format": "md",
+      "text_length": 35
+    }
+  },
+  {
+    "html": "<p>https\\://example.org/escaped and <a href=\"https://example.org/actual\">https://example.org/actual</a></p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "https\\://example.org/escaped and https://example.org/actual",
+      "format": "md",
+      "text_length": 59
+    }
+  },
+  {
+    "html": "<p>See <a href=\"https://example.org/path?a=1&amp;b=2\">https://example.org/path?a=1&amp;b=2</a>, <a href=\"HTTP://example.org/\">HTTP://example.org/</a> and (<a href=\"https://example.org/test\">https://example.org/test</a>).</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "See https://example.org/path?a=1&b=2, HTTP://example.org/ and (https://example.org/test).",
+      "format": "md",
+      "text_length": 89
+    }
+  },
+  {
+    "html": "<p><a href=\"https://example.org/中文/\">https://example.org/中文/</a> <strong><a href=\"https://example.org/bold\">https://example.org/bold</a></strong></p>\n<p><a href=\"https://example.org/explicit\">https://example.org/explicit</a></p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "https://example.org/中文/ https://example.org/bold https://example.org/explicit",
+      "format": "md",
+      "text_length": 77
+    }
+  },
+  {
+    "html": "<p><code>https://example.org/code</code></p>\n<pre><code class=\"language-text\">https://example.org/block</code></pre>\n<p><a href=\"https://example.org/target\">https://example.org/label</a></p>\n<p><img src=\"/image.png\" alt=\"https://example.org/alt\" /></p>",
+    "summary": {
+      "cover": "/image.png",
+      "excerpt": "https://example.org/code https://example.org/block https://example.org/label",
+      "format": "md",
+      "text_length": 76
+    }
+  },
+  {
+    "html": "<h2>标题</h2>\n<p>第一行<br />\n第二行 <strong>加粗</strong> <em>斜体</em> <del>删除</del></p>\n<blockquote>\n<p>引用</p>\n</blockquote>\n<ol start=\"3\">\n<li>三</li>\n<li>四</li>\n</ol>",
+    "summary": {
+      "cover": null,
+      "excerpt": "标题 第一行 第二行 加粗 斜体 删除 引用 三 四",
+      "format": "md",
+      "text_length": 26
+    }
+  },
+  {
+    "html": "<pre><code class=\"language-rust\">let value = \"&lt;正文&gt;\";</code></pre>\n<p><code>inline</code></p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "let value = \"<正文>\"; inline",
+      "format": "md",
+      "text_length": 26
+    }
+  },
+  {
+    "html": "<table>\n<thead>\n<tr>\n<th style=\"text-align: left;\">左</th>\n<th style=\"text-align: right;\">右</th>\n<th style=\"text-align: center;\">中</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td style=\"text-align: left;\">A</td>\n<td style=\"text-align: right;\">B</td>\n<td style=\"text-align: center;\">C</td>\n</tr>\n</tbody>\n</table>",
+    "summary": {
+      "cover": null,
+      "excerpt": "左 右 中 A B C",
+      "format": "md",
+      "text_length": 11
+    }
+  },
+  {
+    "html": "<p><a href=\"https://example.org/?a=1&amp;b=2\" title=\"标题\">链接</a></p>\n<p><img src=\"/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif&amp;v=3\" alt=\"图片\" /></p>",
+    "summary": {
+      "cover": "/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif&thumb=1",
+      "excerpt": "链接",
+      "format": "md",
+      "text_length": 2
+    }
+  },
+  {
+    "html": "<h2>标题</h2><p>正文 &amp; &lt;标签&gt; &#x1F600;</p><img><img src='/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif&thumb=0&v=2' width='50%'>",
+    "summary": {
+      "cover": "/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif&thumb=1",
+      "excerpt": "标题正文 & <标签> 😀",
+      "format": "html",
+      "text_length": 13
+    }
+  },
+  {
+    "html": "<p><b>粗体</b> <i>斜体</i> <u>下划线</u><br><code>代码</code></p><ol start='3'><li>列表</li></ol><blockquote>引用</blockquote>",
+    "summary": {
+      "cover": null,
+      "excerpt": "粗体 斜体 下划线代码列表引用",
+      "format": "html",
+      "text_length": 15
+    }
+  },
+  {
+    "html": "<img src='HTTPS://example.org/image.png'>",
+    "summary": {
+      "cover": "HTTPS://example.org/image.png",
+      "excerpt": "",
+      "format": "html",
+      "text_length": 0
+    }
+  },
+  {
+    "html": "<img src='//example.org/image.png'><img src='/fallback.png'>",
+    "summary": {
+      "cover": null,
+      "excerpt": "",
+      "format": "html",
+      "text_length": 0
+    }
+  },
+  {
+    "html": "<p>中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; 中😀 &amp; </p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & 中😀 & …",
+      "format": "html",
+      "text_length": 149
+    }
+  },
+  {
+    "html": "<h1>一级标题</h1>\n<h6>六级标题</h6>\n<p>####### 七级不是标题</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "一级标题 六级标题 ####### 七级不是标题",
+      "format": "md",
+      "text_length": 24
+    }
+  },
+  {
+    "html": "<h1>标题一</h1>\n<h2>标题二</h2>\n<hr />\n<hr />\n<hr />",
+    "summary": {
+      "cover": null,
+      "excerpt": "标题一 标题二",
+      "format": "md",
+      "text_length": 7
+    }
+  },
+  {
+    "html": "<p><strong><em>全部粗斜</em></strong> 与 <strong>粗 <em>内斜</em> 粗</strong> 和 <em>词间斜体</em> 与 mid_word<em>不应斜</em></p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "全部粗斜 与 粗 内斜 粗 和 词间斜体 与 mid_word不应斜",
+      "format": "md",
+      "text_length": 34
+    }
+  },
+  {
+    "html": "<ul>\n<li>[ ] 待办事项</li>\n<li>[x] 已完成</li>\n</ul>",
+    "summary": {
+      "cover": null,
+      "excerpt": "[ ] 待办事项 [x] 已完成",
+      "format": "md",
+      "text_length": 16
+    }
+  },
+  {
+    "html": "<ul>\n<li>外层一</li>\n<li>外层二\n<ul>\n<li>内层甲</li>\n<li>内层乙</li>\n</ul></li>\n<li>外层三</li>\n</ul>",
+    "summary": {
+      "cover": null,
+      "excerpt": "外层一 外层二 内层甲 内层乙 外层三",
+      "format": "md",
+      "text_length": 19
+    }
+  },
+  {
+    "html": "<p>行一<br />\n行二</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "行一 行二",
+      "format": "md",
+      "text_length": 5
+    }
+  },
+  {
+    "html": "<p>版权 &copy; 2026 与 &amp; 和 &lt;实体&gt; 及 &#169; &#x1F600;</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "版权 © 2026 与 & 和 <实体> 及 © 😀",
+      "format": "md",
+      "text_length": 26
+    }
+  },
+  {
+    "html": "<p>前置 &lt;br&gt; 后置 &lt;div&gt;块&lt;/div&gt; &lt;span style='color:red'&gt;样式&lt;/span&gt; 尾部</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "前置 <br> 后置 <div>块</div> <span style='color:red'>样式</span> 尾部",
+      "format": "md",
+      "text_length": 60
+    }
+  },
+  {
+    "html": "<pre><code>缩进代码行一\n缩进代码行二</code></pre>",
+    "summary": {
+      "cover": null,
+      "excerpt": "缩进代码行一 缩进代码行二",
+      "format": "md",
+      "text_length": 13
+    }
+  },
+  {
+    "html": "<pre><code class=\"language-js\">const value = 1;</code></pre>",
+    "summary": {
+      "cover": null,
+      "excerpt": "const value = 1;",
+      "format": "md",
+      "text_length": 16
+    }
+  },
+  {
+    "html": "<p><img src=\"/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif\" alt=\"替代\" title=\"图片说明\" /></p>",
+    "summary": {
+      "cover": "/image?upload=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.avif&thumb=1",
+      "excerpt": "",
+      "format": "md",
+      "text_length": 0
+    }
+  },
+  {
+    "html": "<p><a href=\"https://example.org/frame\"><img src=\"/pic.png\" alt=\"替代文本\" /></a></p>",
+    "summary": {
+      "cover": "/pic.png",
+      "excerpt": "",
+      "format": "md",
+      "text_length": 0
+    }
+  },
+  {
+    "html": "<blockquote>\n<p>外层引用</p>\n<blockquote>\n<p>嵌套引用<br />\n回到外层</p>\n</blockquote>\n</blockquote>",
+    "summary": {
+      "cover": null,
+      "excerpt": "外层引用 嵌套引用 回到外层",
+      "format": "md",
+      "text_length": 14
+    }
+  },
+  {
+    "html": "<p>访问 <a href=\"https://example.org/page\">https://example.org/page</a>. 以及 <a href=\"https://example.org/end?q=1\">https://example.org/end?q=1</a> 结束</p>",
+    "summary": {
+      "cover": null,
+      "excerpt": "访问 https://example.org/page. 以及 https://example.org/end?q=1 结束",
+      "format": "md",
+      "text_length": 62
+    }
+  },
+  {
+    "html": "<h1>一</h1><h4>四</h4><ul><li>项</li></ul><pre><code>代码块</code></pre><hr><a href='https://example.org/' title='提示'>链接</a>",
+    "summary": {
+      "cover": null,
+      "excerpt": "一四项代码块链接",
+      "format": "html",
+      "text_length": 8
+    }
+  },
+  {
+    "html": "<h5>五</h5><h6>六</h6><dl><dt>词</dt><dd>义</dd></dl>",
+    "summary": {
+      "cover": null,
+      "excerpt": "五六词义",
+      "format": "html",
+      "text_length": 4
+    }
+  }
+]

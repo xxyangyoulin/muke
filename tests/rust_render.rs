@@ -1,12 +1,7 @@
 use muke::render;
 use serde_json::{Value, json};
-use std::{
-    io::Write,
-    process::{Command, Stdio},
-};
-
 #[test]
-fn article_rendering_and_summaries_match_php_fixtures() {
+fn article_rendering_and_summaries_match_recorded_fixtures() {
     let upload = "a".repeat(32) + ".avif";
     let fixtures = json!([
         {"format":"md", "content":r"\: \*literal\* \\: \@ \= \/ and **\:bold**"},
@@ -40,18 +35,9 @@ fn article_rendering_and_summaries_match_php_fixtures() {
         {"format":"html", "content":"<h1>一</h1><h4>四</h4><ul><li>项</li></ul><pre><code>代码块</code></pre><hr><a href='https://example.org/' title='提示'>链接</a>"},
         {"format":"html", "content":"<h5>五</h5><h6>六</h6><dl><dt>词</dt><dd>义</dd></dl>"},
     ]);
-    let mut php = Command::new("php").args(["-r",
-        "require $argv[1]; $out=[]; foreach(json_decode(stream_get_contents(STDIN),true) as $a) {$out[]=['html'=>render_article($a),'summary'=>article_summary($a)];} echo json_encode($out);",
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/Articles.php")])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
-    php.stdin
-        .take()
-        .unwrap()
-        .write_all(fixtures.to_string().as_bytes())
-        .unwrap();
-    let output = php.wait_with_output().unwrap();
-    assert!(output.status.success());
-    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Vec<Value> =
+        serde_json::from_str(include_str!("fixtures/article-render.json")).unwrap();
+    assert_eq!(fixtures.as_array().unwrap().len(), expected.len());
     for (index, (fixture, expected)) in fixtures
         .as_array()
         .unwrap()

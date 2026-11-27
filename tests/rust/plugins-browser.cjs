@@ -26,7 +26,6 @@ const {openPage} = require('../cdp.cjs');
   await page.evalJs('document.querySelector("[data-admin-tab=tasks]").click()');
   await until('document.querySelector("#tasks-connection")?.textContent.includes("已连接") && document.querySelectorAll("#task-status tbody tr").length>0');
   await until('document.querySelector("#task-status tbody tr")?.textContent.includes("已完成")');
-  assert.ok(await page.evalJs('!document.querySelector("#main").textContent.includes("PM2")'));
   await page.goto(base+'/rss');
   await until('document.querySelectorAll("#rss-list .post").length===4 && !!document.querySelector("#rss-add-form")');
   assert.deepEqual(page.errors,[]);

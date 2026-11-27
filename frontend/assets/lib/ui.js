@@ -28,8 +28,8 @@ export function toast(message) { const el = document.querySelector('#toast'); el
 
 export const o = (k, d) => (store.state?.options?.[k] ?? d);
 
-// PHP date() 常用 token 的客户端渲染（自定义格式用）：Y y m n d j H G i s，其余字符原样输出
-function phpDateFormat(fmt, d) {
+// 日期格式常用 token 的客户端渲染（自定义格式用）：Y y m n d j H G i s，其余字符原样输出
+function formatDateTokens(fmt, d) {
  let out = '';
  for (let i = 0; i < fmt.length; i++) {
   const c = fmt[i];
@@ -66,7 +66,7 @@ export function dateLabel(date) {
  }
  if (!hideTime && style === 'custom') {
   const fmt = (o('feed_time_custom', '') || '').trim();
-  if (fmt) return phpDateFormat(fmt, d);
+  if (fmt) return formatDateTokens(fmt, d);
  }
  if (style === 'compact' && !hideTime) {
   const p = n => String(n).padStart(2, '0');

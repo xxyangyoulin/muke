@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
                 .fallback_service(ServeDir::new(&frontend).fallback(tower_http::services::ServeFile::new(frontend.join("index.html"))))
                 .with_state(state)
                 .layer(axum::extract::DefaultBodyLimit::max(68*1024*1024))
-                // 接口/图片已在路由层强制 no-store；其余（静态资源）允许协商缓存（与 PHP nginx 的 no-cache 一致）
+                // 接口/图片已在路由层强制 no-store；其余（静态资源）允许协商缓存
                 .layer(SetResponseHeaderLayer::if_not_present(axum::http::header::CACHE_CONTROL,axum::http::HeaderValue::from_static("no-cache")))
                 .layer(SetResponseHeaderLayer::overriding(axum::http::header::X_CONTENT_TYPE_OPTIONS,axum::http::HeaderValue::from_static("nosniff")))
                 .layer(SetResponseHeaderLayer::overriding(axum::http::header::CONTENT_SECURITY_POLICY,axum::http::HeaderValue::from_static("default-src 'self'; img-src 'self' https: data: blob:; script-src 'self'; style-src 'self'; frame-src 'self' https://giscus.app; frame-ancestors 'none'; base-uri 'self'")));

@@ -1,17 +1,15 @@
 services:
-  mkblog:
+  muke:
     build: .
-    ports:
-      - "8765:8765"
-    volumes: &app-volumes
-      - ./var:/app/var                 # 数据库、上传图片、缓存（持久化）
-      - /path/to/your/wallpapers:/wallpapers     # 改成你的壁纸目录；上传/删除需要可写权限
-    environment: &app-environment
-      - MKBLOG_WALLPAPER_DIR=/wallpapers
-      # - MKBLOG_HTTP_PROXY=http://host.docker.internal:7890
-  sync:
-    build: .
-    command: ["php", "bin/sync.php", "--watch"]
     restart: unless-stopped
-    volumes: *app-volumes
-    environment: *app-environment
+    ports:
+      - "127.0.0.1:8785:8785"
+    volumes:
+      - data:/opt/muke/data
+      - exports:/opt/muke/dist
+    environment:
+      MKBLOG_SETUP_HOSTS: "*"
+
+volumes:
+  data:
+  exports:

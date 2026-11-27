@@ -2,6 +2,7 @@
 
 ## 0.5.0
 
+- 移除旧运行时、重复资源及迁移脚本，统一 Rust 测试、容器和发布流程；旧数据兼容性由固定样本回归验证。
 - 后台安装独立 Rust 插件：支持公开 GitHub 仓库、本地仓库及多插件目录扫描，提供编译日志、更新和取消。
 - 插件通过进程协议接入动态、页面、静态导出与备份恢复，无须重编译主程序。
 - 新增公共模型服务，支持 OpenAI Responses、Chat Completions 和 Anthropic Messages，统一管理密钥、并发、重试、取消及调用记录。
@@ -16,9 +17,9 @@
 - 提供内容管理、RSS/壁纸等插件、giscus 评论与点赞统计缓存、静态站点导出及完整备份恢复。
 - 修复备份快照与媒体一致性、离线命令与运行服务互斥、任务提交后的取消状态，以及导出临时目录恢复。
 - 静态媒体使用内容哈希更新缓存地址；修复 Debian 容器中的 ImageMagick 命令兼容。
-- Release 在 PHP/Rust 测试通过后，原生构建并验证 Linux x86_64、aarch64 安装包，发布 tar.gz 与 SHA256SUMS。
+- Release 在回归测试通过后，原生构建并验证 Linux x86_64、aarch64 安装包，发布 tar.gz 与 SHA256SUMS。
 
-安装包基于 Ubuntu 24.04 构建，需要 glibc 2.39 或更高版本及 ImageMagick。安装与从 PHP 版迁移见 [Rust 安装指南](https://github.com/xxyangyoulin/muke/blob/v0.4.0/docs/rust-install.md)；旧 PHP 版安装包保留在 v0.3.0 Release。
+安装包基于 Ubuntu 24.04 构建，需要 glibc 2.39 或更高版本及 ImageMagick。安装与旧版本数据迁移见 [Rust 安装指南](docs/rust-install.md)。
 
 ## 0.3.0
 

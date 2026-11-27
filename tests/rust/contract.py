@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Run the PHP/Rust read API contract against generated, non-personal data."""
+"""Verify read APIs and legacy migration against fixed, synthetic fixtures."""
 import argparse
 import concurrent.futures
-import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import shutil
-import signal
 import socket
 import sqlite3
 import statistics
@@ -86,57 +84,43 @@ def main():
         root.mkdir(parents=True, exist_ok=False)
     processes = []
     try:
-        app = root / 'php'
-        app.mkdir()
-        for name in ['src', 'plugins', 'public', 'lib']:
-            shutil.copytree(ROOT / name, app / name)
-        for name in ['app.php', 'VERSION', 'config.default.php']:
-            shutil.copy2(ROOT / name, app / name)
         data = root / 'data'
+        (data/'uploads').mkdir(parents=True)
+        with sqlite3.connect(data/'blog.sqlite') as db:
+            db.executescript((ROOT/'tests/fixtures/legacy.sql').read_text())
+        shutil.copyfile(ROOT/'tests/fixtures/rss/pixel.png',data/'uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png')
+        expected = json.loads((ROOT/'tests/fixtures/read-api.json').read_text())
         env = {key:value for key,value in os.environ.items() if not key.startswith('MKBLOG_')}
-        env['MKBLOG_DATA_DIR'] = str(data)
-        subprocess.run(['php', str(ROOT/'tests/rust/fixture.php'), str(app)], env=env, check=True, stdout=subprocess.DEVNULL)
-        php_url = f'http://127.0.0.1:{free_port()}'
-        php = subprocess.Popen(['php', '-S', php_url.removeprefix('http://'), '-t', str(app/'public'), str(app/'public/index.php')], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        processes.append(php)
-        wait_ready(php_url, php)
+        config = root/'config.toml';config.write_text('')
         binary = ROOT/'target/debug/muke'
-        command = [str(binary), '--data-dir', str(data), '--work-dir', str(root/'work')]
+        command = [str(binary), '--config', str(config), '--data-dir', str(data), '--work-dir', str(root/'work')]
         rust_url = f'http://127.0.0.1:{free_port()}'
         def content_snapshot():
             with sqlite3.connect(data/'blog.sqlite') as db:
                 return {table:db.execute('SELECT * FROM '+table+' ORDER BY rowid').fetchall() for table in ['posts','articles','article_revisions','comments','post_likes','settings']}
         before = content_snapshot()
         def start_rust(extra_env=None):
-            p = subprocess.Popen(command+['serve','--listen',rust_url.removeprefix('http://'),'--frontend',str(ROOT/'frontend')], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=extra_env)
+            p = subprocess.Popen(command+['serve','--listen',rust_url.removeprefix('http://'),'--frontend',str(ROOT/'frontend')], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=extra_env or env, cwd=root)
             processes.append(p)
             wait_ready(rust_url,p)
             return p
         rust = start_rust()
         def cli(*parts):
-            return subprocess.check_output(command+list(parts),text=True).strip()
-        cases = [
-            {'action':'posts'}, {'action':'posts','limit':1}, {'action':'posts','q':'猫','limit':7},
-            {'action':'posts','q':"' OR 1=1 --"}, {'action':'posts','limit':0},
-            {'action':'posts','cursor':'invalid'}, {'action':'articles','draft':1},
-            {'action':'articles','id':3}, {'action':'articles','id':999},
-            {'action':'articles','cursor':'invalid'}, {'action':'unknown'},
-        ]
-        for case in cases:
-            assert request(php_url,case)==request(rust_url,case), case
+            return subprocess.check_output(command+list(parts),text=True,env=env,cwd=root).strip()
+        for case in expected['cases']:
+            assert request(rust_url,case['query']) == (case['status'],case['body']),case['query']
         for action in ['posts','articles']:
             cursor = None
             seen = []
-            while True:
+            for left in expected['pages'][action]:
                 case = {'action':action,'limit':2}
                 if cursor: case['cursor']=cursor
-                left_status,left=request(php_url,case)
                 right_status,right=request(rust_url,case)
-                assert left_status==right_status==200
+                assert right_status==200
                 if action=='articles':
                     for values in [left,right]:
                         for item in values[action]:
-                            # Markdown renderer parity is a P2 gate; compare list contracts separately.
+                            # Rendering has its own fixture coverage.
                             item.pop('excerpt');item.pop('text_length')
                 left_cursor=left.pop('next_cursor');right_cursor=right.pop('next_cursor')
                 if left_cursor:
@@ -146,13 +130,13 @@ def main():
                 assert left==right,(case,left,right)
                 seen.extend(item['id'] for item in right[action])
                 cursor=left_cursor
-                if not cursor: break
+            assert cursor is None
             assert len(seen)==len(set(seen))
             assert len(seen)==(64 if action=='posts' else 4)
-        for case in [{'action':'articles','q':'正文'}, {'action':'articles','tag':'测试'}, {'action':'articles','tag':'测'}]:
-            left=request(php_url,case)[1];right=request(rust_url,case)[1]
-            assert left['total']==right['total']
-            assert [i['id'] for i in left['articles']]==[i['id'] for i in right['articles']]
+        for case in expected['searches']:
+            status,body=request(rust_url,case['query'])
+            assert status==200 and body['total']==case['total']
+            assert [item['id'] for item in body['articles']]==case['ids']
         safe=request(rust_url,{'action':'articles','id':5})[1]['article']['html']
         assert 'onerror' not in safe and 'javascript:' not in safe
         subprocess.run(['node',str(ROOT/'tests/rust/browser.cjs'),rust_url],check=True)
@@ -195,7 +179,7 @@ def main():
         slow=slow_bin/'magick'
         slow.write_text('#!/usr/bin/python3\nimport os,sys,time\nfrom pathlib import Path\nPath(sys.argv[-1]).with_suffix(".pid").write_text(str(os.getpid()))\ntime.sleep(60)\n')
         slow.chmod(0o755)
-        slow_env=dict(os.environ,PATH=str(slow_bin)+os.pathsep+os.environ['PATH'])
+        slow_env=dict(env,PATH=str(slow_bin)+os.pathsep+env['PATH'])
         ids=[]
         for letter in ['b','c','d']:
             image=source.with_name(letter*32+'.png')
@@ -238,7 +222,7 @@ def main():
         rust=start_rust()
         until(lambda:job(shutdown_ids[2])['state']=='succeeded')
         assert content_snapshot()==before
-        report={'environment':{'os':platform.platform(),'cpu_count':os.cpu_count(),'cpu':next((line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'unknown'),'php':subprocess.check_output(['php','-r','echo PHP_VERSION;'],text=True),'rustc':subprocess.check_output(['rustc','--version'],text=True).strip(),'rust_profile':'debug','fixture':{'posts':65,'published_articles':4,'drafts':1}},'php':benchmark(php_url,php.pid),'rust':benchmark(rust_url,rust.pid),'rust_with_two_slow_children':loaded,'cancel_ms':cancel_ms,'real_compression_ms':real_compression_ms}
+        report={'environment':{'os':platform.platform(),'cpu_count':os.cpu_count(),'cpu':next((line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'unknown'),'rustc':subprocess.check_output(['rustc','--version'],text=True).strip(),'rust_profile':'debug','fixture':{'posts':65,'published_articles':4,'drafts':1}},'rust':benchmark(rust_url,rust.pid),'rust_with_two_slow_children':loaded,'cancel_ms':cancel_ms,'real_compression_ms':real_compression_ms}
         if args.report:
             args.report.parent.mkdir(parents=True,exist_ok=True)
             args.report.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')

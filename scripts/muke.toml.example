@@ -1,5 +1,4 @@
 # MUKE（Rust 版）配置示例。结构字段见 src/config.rs；其余键进入 [settings]（与后台站点设置同库合并，TOML 优先于默认值）。
-# 由 PHP 迁移：php bin/rust-migrate-config.php config.php muke.toml
 
 listen = "127.0.0.1:8785"
 data_dir = "/opt/muke/data"

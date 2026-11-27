@@ -67,7 +67,7 @@ pub fn write(
                 if first_plugin_route.is_none() {
                     first_plugin_route = Some(route.clone());
                 }
-                // 与 PHP 端一致：声明了 page.nav 的插件进左侧导航（图标/标签/计数徽标），
+                // 声明了 page.nav 的插件进左侧导航（图标/标签/计数徽标），
                 // 仅 page.tab 的插件（如 RSS）走首页顶栏标签
                 if let Some(nav) = item["page"]["nav"].as_object() {
                     let label = nav
@@ -284,7 +284,7 @@ fn page_shell(
         .replace_all(shell, "")
         .into_owned()
         .replace("木刻", &text(profile, "name"));
-    // 与 PHP 静态页一致：访客的「探索风景」入口指向第一个插件页（无则文章列表）
+    // 访客的「探索风景」入口指向第一个插件页（无则文章列表）
     let explore = format!(
         r#"<a class="primary publish-button" id="new-post" href="{}" title="探索风景"><span data-icon="image"></span><span class="nav-text">探索风景</span></a>"#,
         escape(explore)
@@ -310,7 +310,7 @@ fn page_shell(
     Ok(html)
 }
 
-/// 静态产物 HTML 压缩（对齐 PHP minify_html 的保守子集）：删除注释、
+/// 静态产物 HTML 压缩：删除注释、
 /// 折叠标签间含换行的空白与文本内空白串；pre/textarea/script/style 原样保留。
 fn minify_html(html: &str) -> String {
     let bytes = html.as_bytes();
@@ -416,7 +416,7 @@ mod tests {
                     .next()
                     .is_none()
             );
-            // 静态访客入口「探索风景」复用 #new-post（与 PHP 一致）
+            // 静态访客入口「探索风景」复用 #new-post
             let explore = html.select(&selector("#new-post")).next().unwrap();
             let link = explore.value().attr("href").unwrap_or_default();
             assert!(link.starts_with('/'), "探索风景入口：{link}");
