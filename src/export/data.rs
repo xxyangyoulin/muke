@@ -59,6 +59,7 @@ pub async fn build(
     };
     let destination = destination.to_owned();
     let stop = stop.clone();
+    let registry = app.plugins.clone();
     tokio::task::spawn_blocking(move || {
         let mut posts = posts;
         for post in &mut posts {
@@ -89,7 +90,7 @@ pub async fn build(
                 article["giscus_counts"] = value.clone();
             }
         }
-        let (mut plugin_items, plugin_meta) = plugins::export_data(&plugin_snapshots, &posts, &media);
+        let (mut plugin_items, plugin_meta) = plugins::export_data(&registry, &plugin_snapshots, &posts, &media);
         // 插件导出值可能是任意形状（如壁纸的图库数组），只对对象里的 posts 数组挂载计数
         for posts_value in plugin_items
             .as_object_mut()
@@ -173,6 +174,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: network::Client::new(None),
@@ -306,6 +308,7 @@ mod tests {
         let mut client = network::Client::new(None);
         client.fixture = Some(fixture.clone());
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: client,

@@ -65,7 +65,7 @@ pub async fn recover(app: &App) -> Result<bool> {
 }
 
 pub async fn upload(app: &App, input: Value, files: Vec<media::Upload>) -> Result<Value> {
-    let _operation = super::super::mutation_guard("wallpapers")?;
+    let _operation = super::super::mutation_guard(app, "wallpapers")?;
     {
         let _guard = app.content_lock.write().await;
         if operations::recover(app).await? {

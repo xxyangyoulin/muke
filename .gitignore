@@ -14,3 +14,4 @@ nohup.out
 cookies*.txt
 /target/
 /tests/rust/__pycache__/
+/muke-plugins/

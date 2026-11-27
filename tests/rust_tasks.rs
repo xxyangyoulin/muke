@@ -44,6 +44,7 @@ async fn export_task_publishes_dist_through_the_runner() {
         ..Config::default()
     };
     let app = App {
+        plugins: muke::plugins::Registry::default(),
         db: database::open(&data).await.unwrap(),
         tasks: tasks::open(&work).await.unwrap(),
         network: network::Client::new(None),

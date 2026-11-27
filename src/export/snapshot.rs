@@ -31,7 +31,10 @@ pub async fn capture<'a>(app: &'a App, stop: &CancellationToken) -> Result<Snaps
     let mut state = public_state(app, &settings).await?;
     state["capabilities"]["read_only"] = Value::Bool(true);
     let hidden_sources = plugins::hidden_sources(app).await?;
-    let plugins = plugins::export_snapshots(app).await?;
+    let plugins = tokio::select! {
+        _ = stop.cancelled() => bail!("任务已取消"),
+        snapshots = plugins::export_snapshots(app) => snapshots?,
+    };
     let posts = sqlx::query("SELECT p.id,p.content,p.created_at,p.updated_at,p.images,p.meta,p.source,p.source_key,p.link,p.pinned,(SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,(SELECT COUNT(*) FROM comments c WHERE c.kind='post' AND c.target_id=p.id AND c.status='approved') AS comment_count FROM posts p ORDER BY pinned DESC,created_at DESC,id DESC")
         .fetch_all(&app.db).await?.into_iter().map(row_json).collect();
     let articles = sqlx::query("SELECT a.id,a.title,a.content,a.format,a.images,a.tags,a.created_at,a.updated_at,(SELECT COUNT(*) FROM comments c WHERE c.kind='article' AND c.target_id=a.id AND c.status='approved') AS comment_count FROM articles a WHERE draft=0 ORDER BY created_at DESC,id DESC")
@@ -82,6 +85,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: network::Client::new(None),

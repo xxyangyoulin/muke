@@ -4,6 +4,11 @@ mod dms;
 mod douban;
 mod feed;
 mod import;
+pub mod install;
+mod process;
+mod registry;
+mod remote;
+pub use registry::Registry;
 #[path = "../../plugins/rss/backend/mod.rs"]
 mod rss;
 #[path = "../../plugins/wallpapers/backend/mod.rs"]
@@ -22,7 +27,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
-    sync::{Arc, LazyLock},
+    sync::Arc,
 };
 
 pub struct ExportSnapshot {
@@ -32,8 +37,14 @@ pub struct ExportSnapshot {
 
 #[async_trait]
 pub trait Plugin: Sync + Send {
-    fn manifest(&self) -> &'static Value;
-    fn id(&self) -> &'static str;
+    fn manifest(&self) -> &Value;
+    fn id(&self) -> &str;
+    fn installation(&self) -> Option<&Value> {
+        None
+    }
+    fn frontend_directory(&self, root: &std::path::Path) -> PathBuf {
+        root.join(self.id()).join("frontend")
+    }
     async fn migrate(&self, _app: &App) -> anyhow::Result<()> {
         Ok(())
     }
@@ -121,57 +132,54 @@ pub trait Plugin: Sync + Send {
     }
 }
 
-static PLUGINS: [&'static dyn Plugin; 5] = [
-    &rss::Rss,
-    &dms::Dms,
-    &weibo::Weibo,
-    &douban::Douban,
-    &wallpapers::Wallpapers,
-];
-static GATES: LazyLock<HashMap<&'static str, Arc<tokio::sync::Mutex<()>>>> = LazyLock::new(|| {
-    PLUGINS
-        .iter()
-        .map(|plugin| (plugin.id(), Arc::new(tokio::sync::Mutex::new(()))))
-        .collect()
-});
-
-pub fn mutation_guard(id: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
-    get(id)?;
-    GATES[id].clone().try_lock_owned().map_err(|_| {
-        Error::Http(
-            axum::http::StatusCode::CONFLICT,
-            "插件正在执行任务，请等待完成或先取消任务".into(),
-        )
-    })
+pub fn mutation_guard(app: &App, id: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+    app.plugins.mutation_guard(id)
 }
 
-pub fn frontend_directories(root: &std::path::Path) -> Vec<(&'static str, PathBuf)> {
-    PLUGINS
-        .iter()
+pub fn frontend_directories(registry: &Registry, root: &std::path::Path) -> Vec<(String, PathBuf)> {
+    registry
+        .all()
+        .into_iter()
         .filter(|plugin| plugin.manifest().get("frontend").is_some())
-        .map(|plugin| (plugin.id(), root.join(plugin.id()).join("frontend")))
+        .map(|plugin| (plugin.id().to_owned(), plugin.frontend_directory(root)))
         .collect()
 }
 
-pub fn assets(mut router: axum::Router<App>, root: &std::path::Path) -> axum::Router<App> {
-    for (id, directory) in frontend_directories(root) {
-        router = router.nest_service(
-            &format!("/plugins/{id}"),
-            tower_http::services::ServeDir::new(directory),
-        );
-    }
-    router
+pub fn assets(router: axum::Router<App>) -> axum::Router<App> {
+    router.route("/plugins/{id}/{*path}", axum::routing::get(asset))
 }
 
-pub fn get(id: &str) -> Result<&'static dyn Plugin> {
-    PLUGINS
-        .iter()
-        .copied()
-        .find(|p| p.id() == id)
-        .ok_or_else(|| Error::not_found("插件不存在"))
+async fn asset(
+    axum::extract::State(app): axum::extract::State<App>,
+    axum::extract::Path((id, _)): axum::extract::Path<(String, String)>,
+    mut request: axum::extract::Request,
+) -> Result<axum::response::Response> {
+    use axum::response::IntoResponse;
+    let plugin = app.plugins.get(&id)?;
+    if plugin.manifest().get("frontend").is_none() {
+        return Err(Error::not_found("插件没有前端资源"));
+    }
+    let root = app
+        .config
+        .frontend
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("plugins");
+    let path = request.uri().path().splitn(4, '/').nth(3).unwrap_or("");
+    *request.uri_mut() = format!("/{path}")
+        .parse()
+        .map_err(|_| Error::invalid("资源路径无效"))?;
+    Ok(
+        tower_http::services::ServeDir::new(plugin.frontend_directory(&root))
+            .try_call(request)
+            .await
+            .map_err(|error| Error::Internal(error.to_string()))?
+            .into_response(),
+    )
 }
 pub async fn migrate(app: &App) -> anyhow::Result<()> {
-    for plugin in PLUGINS {
+    install::load(app).await?;
+    for plugin in app.plugins.all() {
         plugin.migrate(app).await?;
     }
     import::recover(app).await?;
@@ -217,9 +225,9 @@ pub fn config(plugin: &dyn Plugin, settings: &Settings) -> Settings {
 pub async fn public(app: &App) -> Result<Value> {
     let settings = Settings::load(app).await?;
     let mut values = serde_json::Map::new();
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         let manifest = plugin.manifest();
-        let enabled = config(plugin, &settings).enabled("_enabled");
+        let enabled = config(plugin.as_ref(), &settings).enabled("_enabled");
         let mut item = json!({"name":manifest["name"],"color":manifest["label_color"]});
         if manifest["post_images_full"] == true {
             item["full_images"] = json!(true);
@@ -233,7 +241,7 @@ pub async fn public(app: &App) -> Result<Value> {
             && manifest.get("page").is_some()
             && manifest["page_setting"]
                 .as_str()
-                .is_none_or(|key| !config(plugin, &settings).get(key).is_empty())
+                .is_none_or(|key| !config(plugin.as_ref(), &settings).get(key).is_empty())
         {
             item["page"] = manifest["page"].clone();
         }
@@ -243,10 +251,12 @@ pub async fn public(app: &App) -> Result<Value> {
 }
 pub async fn hidden_sources(app: &App) -> Result<Vec<String>> {
     let settings = Settings::load(app).await?;
-    Ok(PLUGINS
-        .iter()
+    Ok(app
+        .plugins
+        .all()
+        .into_iter()
         .filter_map(|plugin| {
-            let config = config(*plugin, &settings);
+            let config = config(plugin.as_ref(), &settings);
             plugin.manifest()["timeline_field"]
                 .as_str()
                 .filter(|field| config.enabled("_enabled") && !config.enabled(field))
@@ -257,9 +267,12 @@ pub async fn hidden_sources(app: &App) -> Result<Vec<String>> {
 pub async fn admin_list(app: &App) -> Result<Value> {
     let settings = Settings::load(app).await?;
     let mut result = Vec::new();
-    for plugin in PLUGINS {
-        let config = config(plugin, &settings);
+    for plugin in app.plugins.all() {
+        let config = config(plugin.as_ref(), &settings);
         let mut item = plugin.manifest().clone();
+        if let Some(installation) = plugin.installation() {
+            item["installation"] = installation.clone();
+        }
         for field in item["fields"].as_array_mut().unwrap() {
             field["value"] = json!(config.get(field["key"].as_str().unwrap()));
         }
@@ -279,12 +292,12 @@ pub async fn admin_list(app: &App) -> Result<Value> {
     Ok(json!({"plugins":result}))
 }
 pub async fn save(app: &App, input: &Value) -> Result<Value> {
-    let plugin = get(input["id"].as_str().unwrap_or(""))?;
-    let _operation = mutation_guard(plugin.id())?;
+    let plugin = app.plugins.get(input["id"].as_str().unwrap_or(""))?;
+    let _operation = mutation_guard(app, plugin.id())?;
     let mut changes = Vec::new();
     let mut values = input["values"].as_object().cloned().unwrap_or_default();
     if input["enabled"] == 1 || input["enabled"] == true {
-        for (key, value) in config(plugin, &Settings::load(app).await?).0 {
+        for (key, value) in config(plugin.as_ref(), &Settings::load(app).await?).0 {
             values.entry(key).or_insert(json!(value));
         }
     }
@@ -342,11 +355,11 @@ pub async fn save(app: &App, input: &Value) -> Result<Value> {
                 }
             }
         }
-        changes.push((setting_key(plugin, key), raw));
+        changes.push((setting_key(plugin.as_ref(), key), raw));
     }
     if let Some(enabled) = input.get("enabled") {
         changes.push((
-            setting_key(plugin, "enabled"),
+            setting_key(plugin.as_ref(), "enabled"),
             if enabled == 1 || enabled == true {
                 "1"
             } else {
@@ -367,14 +380,14 @@ pub async fn save(app: &App, input: &Value) -> Result<Value> {
         .execute(&mut *tx)
         .await?;
     plugin
-        .config_changed(&mut tx, &config(plugin, &settings))
+        .config_changed(&mut tx, &config(plugin.as_ref(), &settings))
         .await?;
     tx.commit().await?;
     Ok(json!({"ok":true}))
 }
-pub async fn enabled(app: &App, id: &str) -> Result<&'static dyn Plugin> {
-    let plugin = get(id)?;
-    if !config(plugin, &Settings::load(app).await?).enabled("_enabled") {
+pub async fn enabled(app: &App, id: &str) -> Result<Arc<dyn Plugin>> {
+    let plugin = app.plugins.get(id)?;
+    if !config(plugin.as_ref(), &Settings::load(app).await?).enabled("_enabled") {
         return Err(Error::invalid("插件未启用"));
     }
     Ok(plugin)
@@ -396,8 +409,8 @@ pub async fn run(
     id: &str,
     params: Value,
 ) -> anyhow::Result<Value> {
-    get(id)?;
-    let _operation = tokio::select! {_=ctx.stop.cancelled()=>anyhow::bail!("任务已取消"), guard=GATES[id].clone().lock_owned()=>guard};
+    let gate = app.plugins.gate(id)?;
+    let _operation = tokio::select! {_=ctx.stop.cancelled()=>anyhow::bail!("任务已取消"), guard=gate.lock_owned()=>guard};
     let plugin = enabled(app, id).await?;
     let result = plugin.sync(app, ctx, params).await;
     let _guard = app.content_lock.write().await;
@@ -420,10 +433,12 @@ pub async fn run(
 }
 pub async fn schedules(app: &App) -> Result<Vec<tasks::Schedule>> {
     let settings = Settings::load(app).await?;
-    Ok(PLUGINS
-        .iter()
+    Ok(app
+        .plugins
+        .all()
+        .into_iter()
         .filter_map(|plugin| {
-            let config = config(*plugin, &settings);
+            let config = config(plugin.as_ref(), &settings);
             (config.enabled("_enabled") && plugin.interval(&config) > 0).then(|| tasks::Schedule {
                 key: format!("plugin:{}", plugin.id()),
                 task: tasks::Task::PluginSync {
@@ -436,7 +451,7 @@ pub async fn schedules(app: &App) -> Result<Vec<tasks::Schedule>> {
         .collect())
 }
 pub async fn resolve_ref(app: &App, reference: &str) -> Result<Option<Value>> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         if let Some(value) = plugin.resolve_ref(app, reference).await? {
             return Ok(Some(value));
         }
@@ -447,7 +462,7 @@ pub async fn image(
     app: &App,
     params: &HashMap<String, String>,
 ) -> Result<Option<axum::response::Response>> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         if let Some(response) = plugin.image(app, params).await? {
             return Ok(Some(response));
         }
@@ -457,8 +472,8 @@ pub async fn image(
 pub async fn export_snapshots(app: &App) -> Result<BTreeMap<String, ExportSnapshot>> {
     let settings = Settings::load(app).await?;
     let mut snapshots = BTreeMap::new();
-    for plugin in PLUGINS {
-        if config(plugin, &settings).enabled("_enabled")
+    for plugin in app.plugins.all() {
+        if config(plugin.as_ref(), &settings).enabled("_enabled")
             && let Some(snapshot) = plugin.export_snapshot(app).await?
         {
             snapshots.insert(plugin.id().into(), snapshot);
@@ -468,24 +483,25 @@ pub async fn export_snapshots(app: &App) -> Result<BTreeMap<String, ExportSnapsh
 }
 
 /// 所有插件声明的备份资源目录（插件 ID，设置键，目录）。
-pub async fn backup_paths(app: &App) -> Result<Vec<(&'static str, String, PathBuf)>> {
+pub async fn backup_paths(app: &App) -> Result<Vec<(String, String, PathBuf)>> {
     let mut paths = Vec::new();
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         for (key, directory) in plugin.backup_paths(app).await? {
-            paths.push((plugin.id(), key, directory));
+            paths.push((plugin.id().to_owned(), key, directory));
         }
     }
     Ok(paths)
 }
 
 pub fn export_data(
+    registry: &Registry,
     snapshots: &BTreeMap<String, ExportSnapshot>,
     posts: &[Value],
     media: &BTreeMap<String, Value>,
 ) -> (Value, Value) {
     let mut items = serde_json::Map::new();
     let mut metadata = serde_json::Map::new();
-    for plugin in PLUGINS {
+    for plugin in registry.all() {
         if let Some(snapshot) = snapshots.get(plugin.id()) {
             let data = plugin.export_data(&snapshot.data, posts, media);
             items.insert(
@@ -502,7 +518,7 @@ pub fn export_data(
 }
 
 pub async fn export_source(app: &App, reference: &str) -> Result<Option<PathBuf>> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         if let Some(path) = plugin.export_source(app, reference).await? {
             return Ok(Some(path));
         }
@@ -510,7 +526,7 @@ pub async fn export_source(app: &App, reference: &str) -> Result<Option<PathBuf>
     Ok(None)
 }
 pub async fn references(app: &App, reference: &str) -> Result<bool> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         if plugin.references(app, reference).await? {
             return Ok(true);
         }
@@ -518,13 +534,13 @@ pub async fn references(app: &App, reference: &str) -> Result<bool> {
     Ok(false)
 }
 pub async fn delete_media(app: &App, reference: &str) -> Result<()> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         plugin.delete_media(app, reference).await?;
     }
     Ok(())
 }
 pub async fn thumbnail(app: &App, reference: &str) -> Option<PathBuf> {
-    for plugin in PLUGINS {
+    for plugin in app.plugins.all() {
         if let Some(path) = plugin.thumbnail(app, reference).await {
             return Some(path);
         }
@@ -532,17 +548,17 @@ pub async fn thumbnail(app: &App, reference: &str) -> Option<PathBuf> {
     None
 }
 
-pub fn post_refs(source: &str, meta: &str) -> Vec<String> {
-    match (get(source), serde_json::from_str::<Value>(meta)) {
+pub fn post_refs(registry: &Registry, source: &str, meta: &str) -> Vec<String> {
+    match (registry.get(source), serde_json::from_str::<Value>(meta)) {
         (Ok(plugin), Ok(meta)) => plugin.post_refs(&meta),
         _ => Vec::new(),
     }
 }
 
 pub async fn remove(app: &App, input: &Value, uninstall: bool) -> Result<Value> {
-    let plugin = get(input["id"].as_str().unwrap_or(""))?;
+    let plugin = app.plugins.get(input["id"].as_str().unwrap_or(""))?;
     let id = plugin.id();
-    let _operation = mutation_guard(id)?;
+    let _operation = mutation_guard(app, id)?;
     let _content = app.content_lock.write().await;
     let purge = !uninstall || input["purge"] == 1 || input["purge"] == true;
     let mut tx = app.db.begin_with("BEGIN IMMEDIATE").await?;
@@ -557,7 +573,7 @@ pub async fn remove(app: &App, input: &Value, uninstall: bool) -> Result<Value> 
         deleted = rows.len();
         for (images, meta) in rows {
             refs.extend(serde_json::from_str::<Vec<String>>(&images).unwrap_or_default());
-            refs.extend(post_refs(id, &meta));
+            refs.extend(post_refs(&app.plugins, id, &meta));
         }
         sqlx::query("DELETE FROM comments WHERE kind='post' AND target_id IN (SELECT id FROM posts WHERE source=?)").bind(id).execute(&mut *tx).await?;
         sqlx::query(
@@ -585,7 +601,7 @@ pub async fn remove(app: &App, input: &Value, uninstall: bool) -> Result<Value> 
             .await?;
         for (key, value) in [("enabled", "0"), ("removed", "1")] {
             sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
-                .bind(setting_key(plugin,key))
+                .bind(setting_key(plugin.as_ref(),key))
                 .bind(value)
                 .execute(&mut *tx)
                 .await?;

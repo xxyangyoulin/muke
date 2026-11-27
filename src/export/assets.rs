@@ -4,11 +4,13 @@ use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
 pub async fn copy(
+    registry: &plugins::Registry,
     frontend: &Path,
     destination: &Path,
     enabled: &[String],
     stop: &CancellationToken,
 ) -> Result<()> {
+    let registry = registry.clone();
     let frontend = frontend.to_owned();
     let destination = destination.to_owned();
     let stop = stop.clone();
@@ -17,6 +19,14 @@ pub async fn copy(
         if !std::fs::symlink_metadata(&frontend)?.is_dir() {
             bail!("前端目录不能是符号链接");
         }
+        // Independent plugins may import their own modules and public core modules.
+        // Preserve ES module files instead of folding them into the shared-scope bundle.
+        let independent_frontend = enabled.iter().any(|id| {
+            registry.get(id).is_ok_and(|plugin| {
+                plugin.installation().is_some()
+                    && plugin.manifest()["frontend"]["module"].is_string()
+            })
+        });
         let assets = frontend.join("assets");
         for name in ["app.js", "registry.js", "style.css"] {
             if !std::fs::symlink_metadata(assets.join(name))?.is_file() {
@@ -32,12 +42,12 @@ pub async fn copy(
         if !std::fs::symlink_metadata(&root)?.is_dir() {
             bail!("插件目录不能是符号链接");
         }
-        for (id, source) in plugins::frontend_directories(&root) {
-            if !std::fs::symlink_metadata(root.join(id))?.is_dir() {
+        for (id, source) in plugins::frontend_directories(&registry, &root) {
+            if !std::fs::symlink_metadata(source.parent().unwrap())?.is_dir() {
                 bail!("插件目录不能是符号链接：{id}");
             }
             for field in ["module", "style"] {
-                if let Some(file) = plugins::get(id)?.manifest()["frontend"][field].as_str()
+                if let Some(file) = registry.get(&id)?.manifest()["frontend"][field].as_str()
                     && !std::fs::symlink_metadata(source.join(file))?.is_file()
                 {
                     bail!("缺少插件前端资源：{id}/{file}");
@@ -50,15 +60,19 @@ pub async fn copy(
         let modules: Vec<_> = enabled
             .iter()
             .filter_map(|id| {
-                let file = plugins::get(id).ok()?.manifest()["frontend"]["module"].as_str()?;
+                let plugin = registry.get(id).ok()?;
+                let file = plugin.manifest()["frontend"]["module"].as_str()?;
                 Some(super::bundle::PluginModule {
                     id: id.clone(),
-                    source: root.join(id).join("frontend").join(file),
+                    source: plugin.frontend_directory(&root).join(file),
                     destination: destination.join("plugins").join(id).join(file),
                 })
             })
             .collect();
-        if let Err(error) = super::bundle::bundle(&assets, &destination.join("assets"), &modules) {
+        if !independent_frontend
+            && let Err(error) =
+                super::bundle::bundle(&assets, &destination.join("assets"), &modules)
+        {
             tracing::warn!(%error, "前端打包失败，静态产物保留模块化文件");
         }
         if stop.is_cancelled() {
@@ -146,7 +160,8 @@ mod tests {
         std::fs::write(assets.join(".secret"), "private").unwrap();
         std::fs::write(frontend.join("server.rs"), "backend").unwrap();
         let plugins = root.path().join("plugins");
-        for (_, directory) in plugins::frontend_directories(&plugins) {
+        for (_, directory) in plugins::frontend_directories(&plugins::Registry::default(), &plugins)
+        {
             std::fs::create_dir_all(&directory).unwrap();
             std::fs::write(directory.join("plugin.js"), "plugin").unwrap();
             std::fs::write(directory.join("plugin.css"), "style").unwrap();
@@ -159,7 +174,15 @@ mod tests {
         std::fs::write(destination.join("assets/content.json"), "fresh content").unwrap();
         std::fs::write(destination.join("assets/articles.json"), "fresh articles").unwrap();
         let stop = CancellationToken::new();
-        copy(&frontend, &destination, &[], &stop).await.unwrap();
+        copy(
+            &plugins::Registry::default(),
+            &frontend,
+            &destination,
+            &[],
+            &stop,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             std::fs::read_to_string(destination.join("assets/content.json")).unwrap(),
             "fresh content"
@@ -175,16 +198,28 @@ mod tests {
         assert!(!destination.join("server.rs").exists());
         std::os::unix::fs::symlink(frontend.join("server.rs"), assets.join("leak.js")).unwrap();
         assert!(
-            copy(&frontend, &root.path().join("bad"), &[], &stop)
-                .await
-                .is_err()
+            copy(
+                &plugins::Registry::default(),
+                &frontend,
+                &root.path().join("bad"),
+                &[],
+                &stop
+            )
+            .await
+            .is_err()
         );
         assert!(!root.path().join("bad/assets/leak.js").exists());
         stop.cancel();
         assert!(
-            copy(&frontend, &root.path().join("cancelled"), &[], &stop)
-                .await
-                .is_err()
+            copy(
+                &plugins::Registry::default(),
+                &frontend,
+                &root.path().join("cancelled"),
+                &[],
+                &stop
+            )
+            .await
+            .is_err()
         );
         assert!(!root.path().join("cancelled").exists());
     }

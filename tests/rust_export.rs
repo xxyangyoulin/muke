@@ -10,7 +10,8 @@ fn fixture() -> Data {
         articles: json!({"articles":[{"id":7,"title":"静态文章","html":"<p>静态文章正文</p>","excerpt":"静态文章正文","tags":"测试","created_at":"2026-11-26T08:00:00+08:00","updated_at":"2026-11-26T08:00:00+08:00","comments":[]}]}),
     };
     for id in ["rss", "wallpapers", "weibo", "douban"] {
-        let manifest = muke::plugins::get(id).unwrap().manifest();
+        let plugin = muke::plugins::Registry::default().get(id).unwrap();
+        let manifest = plugin.manifest();
         let mut plugin = json!({"name":manifest["name"],"module":format!("/plugins/{id}/plugin.js"),"style":format!("/plugins/{id}/plugin.css")});
         if let Some(page) = manifest.get("page") {
             plugin["page"] = page.clone();
@@ -45,7 +46,14 @@ fn plugin_pages_and_historical_cards_are_baked() {
     let root = tempfile::tempdir().unwrap();
     let frontend = Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
     let data = fixture();
-    pages::write(&frontend, root.path(), &data, &CancellationToken::new()).unwrap();
+    pages::write(
+        &muke::plugins::Registry::default(),
+        &frontend,
+        root.path(),
+        &data,
+        &CancellationToken::new(),
+    )
+    .unwrap();
     for (file, selector, expected) in [
         ("index.html", ".post-movie-card", "电影 <img id='injected'>"),
         (
@@ -113,7 +121,14 @@ fn plugin_pages_and_historical_cards_are_baked() {
         .unwrap()
         .remove("rss");
     let target = root.path().join("disabled");
-    pages::write(&frontend, &target, &disabled, &CancellationToken::new()).unwrap();
+    pages::write(
+        &muke::plugins::Registry::default(),
+        &frontend,
+        &target,
+        &disabled,
+        &CancellationToken::new(),
+    )
+    .unwrap();
     assert!(!target.join("rss/index.html").exists());
     let html =
         scraper::Html::parse_document(&std::fs::read_to_string(target.join("index.html")).unwrap());
@@ -132,15 +147,28 @@ async fn static_pages_in_browser() {
         .as_object()
         .map(|plugins| plugins.keys().cloned().collect())
         .unwrap_or_default();
-    assets::copy(&frontend, root.path(), &enabled, &stop)
-        .await
-        .unwrap();
+    assets::copy(
+        &muke::plugins::Registry::default(),
+        &frontend,
+        root.path(),
+        &enabled,
+        &stop,
+    )
+    .await
+    .unwrap();
     std::fs::write(
         root.path().join("fixture.svg"),
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>"#,
     )
     .unwrap();
-    pages::write(&frontend, root.path(), &data, &stop).unwrap();
+    pages::write(
+        &muke::plugins::Registry::default(),
+        &frontend,
+        root.path(),
+        &data,
+        &stop,
+    )
+    .unwrap();
     let status = Command::new("node")
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),

@@ -16,6 +16,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 pub struct App {
+    pub plugins: crate::plugins::Registry,
     pub db: SqlitePool,
     pub tasks: SqlitePool,
     pub network: crate::network::Client,
@@ -177,9 +178,31 @@ pub async fn api(
             session.require_admin()?;
             crate::plugins::admin_list(&app).await?
         }
+        "plugin-environment" => {
+            session.require_admin()?;
+            crate::plugins::install::environment().await
+        }
+        "llm-profiles" => {
+            session.require_admin()?;
+            crate::llm::list(&app).await?
+        }
+        "task-log" => {
+            session.require_admin()?;
+            let id = text(&params, "id")
+                .parse::<i64>()
+                .map_err(|_| Error::invalid("任务编号无效"))?;
+            let output: Option<String> =
+                sqlx::query_scalar("SELECT output FROM job_logs WHERE job_id=?")
+                    .bind(id)
+                    .fetch_optional(&app.tasks)
+                    .await?;
+            json!({"output":output.unwrap_or_default()})
+        }
         "plugin-data" => {
-            let plugin = crate::plugins::get(text(&params, "id"))?;
-            if !crate::plugins::config(plugin, &Settings::load(&app).await?).enabled("_enabled") {
+            let plugin = app.plugins.get(text(&params, "id"))?;
+            if !crate::plugins::config(plugin.as_ref(), &Settings::load(&app).await?)
+                .enabled("_enabled")
+            {
                 return Err(Error::not_found("插件未启用"));
             }
             json!({"ok":true,"data":plugin.data(&app,&params,session.user.is_some()).await?})

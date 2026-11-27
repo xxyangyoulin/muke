@@ -520,6 +520,7 @@ mod tests {
         let mut network = network::Client::new(None);
         network.fixture = Some(fixture.clone());
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&data.join("runtime")).await.unwrap(),
             data,

@@ -9,6 +9,7 @@ pub mod database;
 pub mod deploy;
 pub mod error;
 pub mod export;
+pub mod llm;
 pub mod mail;
 pub mod media;
 pub mod mutations;

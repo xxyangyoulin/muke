@@ -306,7 +306,7 @@ pub async fn delete_post(app: &App, id: i64) -> Result<Value> {
     tx.commit().await?;
     if let Some((images, source, _, meta)) = post {
         let mut refs = serde_json::from_str::<Vec<String>>(&images).unwrap_or_default();
-        refs.extend(crate::plugins::post_refs(&source, &meta));
+        refs.extend(crate::plugins::post_refs(&app.plugins, &source, &meta));
         for reference in refs {
             crate::media::delete_unused(app, &reference).await?;
         }

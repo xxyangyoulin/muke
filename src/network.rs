@@ -129,7 +129,7 @@ impl Client {
             let target = url.clone();
             let lease = permit.clone();
             let stop = stop.clone();
-            let headers = headers.clone();
+            let request_headers = headers.clone();
             let method = method.clone();
             let body = body.clone();
             let request_referer = referer.clone();
@@ -149,9 +149,9 @@ impl Client {
                 if method != "GET" {
                     request.custom_request(&method)?;
                 }
-                if !headers.is_empty() {
+                if !request_headers.is_empty() {
                     let mut list = List::new();
-                    for (name, value) in &headers {
+                    for (name, value) in &request_headers {
                         list.append(&format!("{name}: {value}"))?;
                     }
                     request.http_headers(list)?;
@@ -224,6 +224,14 @@ impl Client {
             {
                 let next = parse_url(url.join(&location)?.as_str())?;
                 if next.origin() != url.origin() {
+                    if headers.iter().any(|(name, _)| {
+                        matches!(
+                            name.to_ascii_lowercase().as_str(),
+                            "authorization" | "x-api-key"
+                        )
+                    }) {
+                        bail!("带凭据的请求不能重定向到其他站点");
+                    }
                     referer = None;
                 }
                 url = next;

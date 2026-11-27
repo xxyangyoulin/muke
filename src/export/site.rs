@@ -21,15 +21,18 @@ pub async fn export(
     let destination = artifact.path().to_owned();
     ctx.progress("读取公开数据", 0, None).await?;
     let snapshot = snapshot::capture(app, &ctx.stop).await?;
+    let mut frozen = app.clone();
+    frozen.plugins = app.plugins.snapshot();
+    let app = &frozen;
     let enabled: Vec<String> = snapshot.state["plugins"]
         .as_object()
         .map(|plugins| plugins.keys().cloned().collect())
         .unwrap_or_default();
     ctx.progress("复制资源", 0, None).await?;
-    assets::copy(frontend, &destination, &enabled, &ctx.stop).await?;
+    assets::copy(&app.plugins, frontend, &destination, &enabled, &ctx.stop).await?;
     let data = data::build(app, snapshot, &destination, &ctx.stop).await?;
     ctx.progress("生成页面", 0, None).await?;
-    pages::write(frontend, &destination, &data, &ctx.stop)?;
+    pages::write(&app.plugins, frontend, &destination, &data, &ctx.stop)?;
     ctx.progress("生成订阅与辅助文件", 0, None).await?;
     feeds::write(&destination, &data, &ctx.stop)?;
     write_extras(&destination, &data)?;
@@ -129,6 +132,7 @@ mod tests {
     async fn app(root: &Path) -> App {
         let data = root.join("data");
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.join("work")).await.unwrap(),
             network: network::Client::new(None),

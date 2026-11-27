@@ -8,6 +8,8 @@ import { feed } from './feed.js';
 import { loadArticles, moreArticles, adminArticleRows, articleText } from './articles.js';
 import { renderArticleEditor } from './editor.js';
 import { tasksHTML, bindTasks } from './tasks.js';
+import { modelsHTML, bindModels } from './models.js';
+import { pluginInstallHTML, bindPluginInstall } from './plugin-install.js';
 
 export function optionsFormHTML() {
  return `<form id="options-form" class="panel options-panel"><span class="eyebrow">SITE OPTIONS</span><h2>站点参数</h2><p class="small-label">保存即生效；未改动的项沿用配置文件默认值。</p>${
@@ -46,10 +48,11 @@ export function pluginFieldHTML(f) {
 }
 export function pluginCardHTML(pl) {
  const lastSync = pl.last_sync ? new Date(pl.last_sync * 1000).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'}) : '';
- return `<div class="panel plugin-card" data-plugin="${esc(pl.id)}"><div class="plugin-head"><div class="plugin-title"><h2>${esc(pl.name)}</h2><span class="small-label">已同步 ${pl.post_count} 条${lastSync ? ' · 上次 ' + esc(lastSync) : ''}</span></div><div class="plugin-controls"><button class="secondary plugin-settings" type="button">设置</button><label class="switch-line"><input type="checkbox" class="plugin-enabled" ${pl.enabled ? 'checked' : ''}> 启用</label></div></div><p class="small-label plugin-desc">${esc(pl.description)}</p>${pl.last_error ? `<p class="plugin-error small-label">上次失败：${esc(pl.last_error)}</p>` : ''}<div class="plugin-actions"><button class="text-link plugin-sync" type="button">立即同步</button>${pl.supports_history ? `<button class="text-link plugin-sync-all" type="button">同步历史</button>` : ''}<span class="plugin-danger"><button class="text-link plugin-purge" type="button">清空动态</button><button class="text-link plugin-remove" type="button">移除插件</button></span></div></div>`;
+ return `<div class="panel plugin-card" data-plugin="${esc(pl.id)}"><div class="plugin-head"><div class="plugin-title"><h2>${esc(pl.name)}</h2><span class="small-label">已同步 ${pl.post_count} 条${lastSync ? ' · 上次 ' + esc(lastSync) : ''}</span></div><div class="plugin-controls"><button class="secondary plugin-settings" type="button">设置</button><label class="switch-line"><input type="checkbox" class="plugin-enabled" ${pl.enabled ? 'checked' : ''}> 启用</label></div></div><p class="small-label plugin-desc">${esc(pl.description)}</p>${pl.installation ? `<p class="small-label">版本 ${esc(pl.version)} · ${esc(pl.installation.source)}</p>` : ''}${pl.last_error ? `<p class="plugin-error small-label">上次失败：${esc(pl.last_error)}</p>` : ''}<div class="plugin-actions"><button class="text-link plugin-sync" type="button" ${pl.methods && !pl.methods.includes('sync') ? 'hidden' : ''}>立即同步</button>${pl.installation ? '<button class="text-link plugin-rebuild" type="button">更新并重新编译</button>' : ''}${pl.supports_history ? `<button class="text-link plugin-sync-all" type="button">同步历史</button>` : ''}<span class="plugin-danger"><button class="text-link plugin-purge" type="button">清空动态</button><button class="text-link plugin-remove" type="button">移除插件</button></span></div></div>`;
 }
 
 export function adminSectionHTML() {
+ if (store.adminTab === 'models') return modelsHTML();
  if (store.adminTab === 'tasks') return tasksHTML();
  if (store.adminTab === 'posts') {
   const withImages = store.posts.filter(p => (p.images || []).length).length;
@@ -114,8 +117,9 @@ export function adminSectionHTML() {
  if (store.adminTab === 'publish') return `<div class="settings-cols"><div class="settings-left"><div class="panel export-panel"><span class="eyebrow">STATIC EXPORT</span><h2>生成静态站点</h2><p>导出纯静态 HTML，包含已加载动态、文章及插件内容；已审评论烘焙为只读。</p><div class="dialog-actions left"><button id="export-site" class="primary">${icon('download')}生成静态站点</button><button id="download-static" class="secondary" type="button">下载站点包 (zip)</button></div><p id="export-status" class="export-status" role="status">导出目录：项目内的 dist/；下载打包最近一次生成结果</p></div></div><div><div class="panel netlify-panel"><span class="eyebrow">ONE CLICK TO NETLIFY</span><h2>一键部署</h2>${store.state.netlify?.has_token ? `<p class="small-label">已绑定站点 ${esc(store.state.netlify?.site || '')}</p>` : '<p class="small-label">先保存访问令牌和站点 ID，之后点一下即可自动导出并上传。</p>'}<button id="deploy-site" class="primary">部署到 Netlify ${icon('arrow')}</button><button id="cancel-deploy" class="secondary" type="button" hidden>取消部署</button><button id="netlify-toggle" class="text-link" type="button" aria-expanded="false">${store.state.netlify?.has_token ? '修改配置' : '配置凭据'}</button><form id="auto-deploy-form"><label class="auto-deploy-check"><input type="checkbox" name="auto_deploy" ${store.state.netlify?.auto_deploy ? 'checked' : ''}>发布新动态后自动部署（默认关闭）</label><label>防抖等待（分钟）<input name="auto_deploy_debounce" type="number" min="1" max="1440" value="${store.state.netlify?.auto_deploy_debounce ?? 10}"></label><p class="small-label">静默指定分钟无新动态才执行，期间再发动态会顺延计时；仅手动发布的动态触发。</p><button class="secondary" type="submit">保存自动部署设置</button></form><div id="netlify-form-wrap" ${store.state.netlify?.has_token ? 'hidden' : ''}><form id="netlify-form"><label>访问令牌<input name="token" type="password" autocomplete="off" placeholder="${store.state.netlify?.has_token ? '已保存，留空则保持不变' : 'Netlify Access Token'}"></label><label>站点 ID<input name="site" value="${esc(store.state.netlify?.site || '')}" placeholder="例如 my-site-1234 或站点 UUID"></label><button class="secondary" type="submit">保存设置</button></form></div><p id="netlify-status" class="export-status" role="status">${store.state.netlify?.has_token ? '点击上方按钮：后台任务自动导出并上传，可离开页面。' : ''}</p><div id="deploy-progress" class="deploy-bar" hidden><i></i></div></div></div></div>`;
  if (store.adminTab === 'options') return optionsFormHTML();
  if (store.adminTab === 'plugins') {
+  if (store.pluginsAdmin === null) return '<p class="panel">正在读取插件…</p>';
   const cards = (store.pluginsAdmin || []).filter(pl => !pl.removed);
-  return cards.length ? `<div class="plugins-grid">${cards.map(pluginCardHTML).join('')}</div>` : empty('没有可用插件', '当前版本尚无其他已迁移的插件。', 'grid');
+  return pluginInstallHTML() + (cards.length ? `<div class="plugins-grid">${cards.map(pluginCardHTML).join('')}</div>` : empty('没有可用插件', '安装插件后在这里启用和配置。', 'grid'));
  }
  if (store.adminTab === 'settings') return `<div class="settings-cols"><div class="settings-left"><form id="profile-form" class="panel"><span class="eyebrow">PROFILE</span><h2>空间资料</h2><div class="avatar-edit"><span class="avatar-edit-preview" id="avatar-preview">${store.state.profile.avatar ? `<img src="${esc(store.state.profile.avatar)}" alt="">` : esc(store.state.profile.name.slice(0,1))}</span><div class="avatar-edit-actions"><button class="secondary" type="button" id="avatar-upload">更换头像</button><button class="text-link" type="button" id="avatar-remove">移除头像</button></div><input type="file" id="avatar-input" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden></div><label>昵称<input name="name" maxlength="40" value="${profileName()}" required></label><label>用户名<input name="handle" maxlength="30" pattern="[a-zA-Z0-9_]+" value="${esc(store.state.profile.handle)}" required></label><div class="cover-edit"><div class="cover-edit-preview" id="cover-preview">${store.state.profile.cover ? `<img src="${esc(store.state.profile.cover)}" alt="">` : '<span class="small-label">未设置封面</span>'}</div><div class="cover-edit-actions"><label class="secondary" style="cursor:pointer">上传封面<input type="file" id="cover-input" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden></label><button class="text-link" type="button" id="cover-remove">移除封面</button></div></div><label>封面角标文字（选填）<input name="cover_badge" maxlength="30" value="${esc(store.state.options.cover_badge || '')}" placeholder="如：日常 / 灵感 / 风景，留空不显示"></label><label>个人介绍<textarea name="bio" maxlength="160" required>${esc(store.state.profile.bio)}</textarea></label><button class="secondary" type="submit">保存资料</button></form><form id="password-form" class="panel"><span class="eyebrow">SECURITY</span><h2>修改密码</h2><label>当前密码<input name="current" type="password" required autocomplete="current-password"></label><label>新密码<input name="next" type="password" required minlength="10" maxlength="200" autocomplete="new-password" placeholder="至少 10 位"></label><label>确认新密码<input name="confirm" type="password" required minlength="10" maxlength="200" autocomplete="new-password"></label><button class="secondary" type="submit">更新密码</button></form><div class="panel"><span class="eyebrow">BACKUP</span><h2>备份与恢复</h2><p class="small-label">导出全部动态 / 文章 / 设置 / 上传图片为 JSON；导入将整体替换内容（登录账号保留）。不含壁纸原图及插件业务表，完整备份请使用 CLI。</p><div class="dialog-actions left"><button class="secondary" id="backup-export" type="button">导出备份</button><button class="secondary" id="backup-import-btn" type="button">导入备份</button><input type="file" id="backup-file" accept="application/json" hidden></div></div></div></div>`;
  const recentPosts = postsByDate().slice(0, 5);
@@ -135,7 +139,7 @@ export function admin() {
  }
  if (store.editingArticle !== false) { renderArticleEditor(); return; }
  if (!store.articlesLoaded) loadArticles().then(() => { if (store.page === 'admin' && store.editingArticle === false) admin(); }).catch(() => {});
- const tabs = [['overview', '概览'], ['posts', '动态'], ['articles', '文章'], ['plugins', '插件'], ['comments', '评论'], ['tasks', '任务'], ['options', '参数'], ['settings', '设置'], ['publish', '发布']];
+ const tabs = [['overview', '概览'], ['posts', '动态'], ['articles', '文章'], ['plugins', '插件'], ['comments', '评论'], ['tasks', '任务'], ['models', '模型'], ['options', '参数'], ['settings', '设置'], ['publish', '发布']];
  const urlTab = new URLSearchParams(location.search).get('tab');
  if (urlTab && tabs.some(([key]) => key === urlTab)) store.adminTab = urlTab; // 刷新/直达时按 URL 恢复页签
  store.main.innerHTML = `<div class="admin-page">
@@ -194,6 +198,7 @@ export function pollDeploy(started) {
 }
 
 export function bindAdminSection() {
+ if (store.adminTab === 'models') bindModels();
  if (store.adminTab === 'tasks') bindTasks();
  if (store.adminTab === 'articles') {
   const panel = document.querySelector('.posts-panel');
@@ -252,7 +257,12 @@ export function bindAdminSection() {
    admin();
   } catch (error) { toast(error.message); }
  };
- if (store.adminTab === 'plugins' && store.pluginsAdmin === null) { loadPlugins().then(() => admin()); return; }
+ if (store.adminTab === 'plugins' && store.pluginsAdmin === null) {
+  let active = true;
+  onViewLeave(() => { active = false; });
+  loadPlugins().then(() => { if (active) admin(); });
+  return;
+ }
  if (store.adminTab === 'comments' && !store.commentsData) { loadCommentsAdmin().then(() => admin()).catch(() => admin()); return; }
  document.querySelectorAll('[data-comments-tab]').forEach(button => button.onclick = () => {
   store.commentsTab = button.dataset.commentsTab;
@@ -269,9 +279,19 @@ export function bindAdminSection() {
   const id = b.dataset.commentSpam || b.dataset.commentApprove || b.dataset.commentDelete;
   try { await api('moderate-comment', {id: Number(id), op}); await loadCommentsAdmin(store.commentsFilter || 'all'); admin(); toast(op === 'delete' ? '已删除' : op === 'spam' ? '已标垃圾' : '已恢复'); } catch (e) { toast(e.message); }
  });
+ bindPluginInstall(() => { store.adminTab = 'tasks'; pushHistory('/admin?tab=tasks'); admin(); });
  document.querySelectorAll('.plugin-card').forEach(card => {
   const id = card.dataset.plugin;
   const pl = (store.pluginsAdmin || []).find(x => x.id === id);
+  const rebuild = card.querySelector('.plugin-rebuild');
+  if (rebuild) rebuild.onclick = async () => {
+   rebuild.disabled = true;
+   try {
+    const result = await api('install-plugin', {source_kind:pl.installation.kind, source:pl.installation.source, path:pl.installation.path || ''});
+    toast(`已加入编译任务 #${result.task_id}`);
+    store.adminTab = 'tasks'; pushHistory('/admin?tab=tasks'); admin();
+   } catch (error) { toast(error.message); rebuild.disabled = false; }
+  };
   card.querySelector('.plugin-enabled').onchange = async e => {
    try {
     await api('save-plugin', {id, enabled: e.target.checked ? 1 : 0, values: {}});

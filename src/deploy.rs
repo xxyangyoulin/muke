@@ -326,6 +326,7 @@ mod tests {
             ..Config::default()
         };
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.join("work")).await.unwrap(),
             network: client,

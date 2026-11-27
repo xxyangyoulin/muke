@@ -97,6 +97,7 @@ async fn main() -> Result<()> {
             let db = database::open(&data).await?;
             let stop = CancellationToken::new();
             let state = App {
+                plugins: muke::plugins::Registry::default(),
                 tasks: pool,
                 network: muke::network::Client::new(config.http_proxy.clone()),
                 shutdown: stop.clone(),
@@ -110,10 +111,6 @@ async fn main() -> Result<()> {
             muke::media::recover(&state).await?;
             muke::plugins::migrate(&state).await?;
             let worker_state = state.clone();
-            let plugin_assets = frontend
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("plugins");
             let app = Router::new()
                 .route("/api", get(api).post(mutations::post))
                 .route("/api/tasks/events", get(tasks::events))
@@ -130,7 +127,7 @@ async fn main() -> Result<()> {
                     axum::http::header::CACHE_CONTROL,
                     axum::http::HeaderValue::from_static("no-store"),
                 ));
-            let app=muke::plugins::assets(app, &plugin_assets)
+            let app=muke::plugins::assets(app)
                 .route("/health",get(||async {axum::Json(serde_json::json!({"ok":true}))}))
                 .fallback_service(ServeDir::new(&frontend).fallback(tower_http::services::ServeFile::new(frontend.join("index.html"))))
                 .with_state(state)
@@ -194,6 +191,7 @@ async fn main() -> Result<()> {
                     let db = database::open(&data).await?;
                     let stop = CancellationToken::new();
                     let state = App {
+                        plugins: muke::plugins::Registry::default(),
                         tasks: pool.clone(),
                         network: muke::network::Client::new(config.http_proxy.clone()),
                         shutdown: stop.clone(),
@@ -245,6 +243,7 @@ async fn main() -> Result<()> {
                     let db = database::open(&data).await?;
                     let stop = CancellationToken::new();
                     let state = App {
+                        plugins: muke::plugins::Registry::default(),
                         tasks: pool,
                         network: muke::network::Client::new(config.http_proxy.clone()),
                         shutdown: stop.clone(),
@@ -325,11 +324,14 @@ async fn main() -> Result<()> {
                         .parent()
                         .unwrap_or(std::path::Path::new("."))
                         .join("plugins");
-                    let missing: Vec<_> = muke::plugins::frontend_directories(&plugins)
-                        .into_iter()
-                        .filter(|(_, directory)| !directory.is_dir())
-                        .map(|(id, _)| id.to_owned())
-                        .collect();
+                    let missing: Vec<_> = muke::plugins::frontend_directories(
+                        &muke::plugins::Registry::default(),
+                        &plugins,
+                    )
+                    .into_iter()
+                    .filter(|(_, directory)| !directory.is_dir())
+                    .map(|(id, _)| id.to_owned())
+                    .collect();
                     check("插件前端目录齐备", missing.is_empty(), &missing.join("、"));
                     if fail == 0 {
                         println!("\n环境就绪 ✓");

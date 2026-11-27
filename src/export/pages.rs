@@ -34,6 +34,7 @@ fn absolute(site: &str, path: &str) -> Option<String> {
 }
 
 pub fn write(
+    registry: &plugins::Registry,
     frontend: &Path,
     destination: &Path,
     data: &Data,
@@ -153,7 +154,8 @@ pub fn write(
         }
         let mut body = String::new();
         if let Some((id, _)) = plugin_page {
-            body = plugins::get(id)?
+            body = registry
+                .get(id)?
                 .export_page(&data.content["plugins"][*id])
                 .with_context(|| format!("插件 {id} 未提供静态页面"))?;
         } else if let Some(article) = article {
@@ -191,7 +193,7 @@ pub fn write(
                     ));
                     let rendered = post["source"]
                         .as_str()
-                        .and_then(|id| plugins::get(id).ok())
+                        .and_then(|id| registry.get(id).ok())
                         .and_then(|plugin| plugin.render_post(post));
                     if let Some(rendered) = rendered {
                         body.push_str(&rendered);
@@ -393,7 +395,14 @@ mod tests {
             articles: json!({"articles":[{"id":7,"title":title,"html":"<p>文章正文</p><a href=\"/admin\">正文中的管理链接</a>","excerpt":"摘要","created_at":"2026-11-26","updated_at":"2026-11-26","comments":[{"author":"读者","content":"留言 <b>text</b>","created_at":"2026"}]}]}),
         };
         let frontend = Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
-        write(&frontend, root.path(), &data, &CancellationToken::new()).unwrap();
+        write(
+            &plugins::Registry::default(),
+            &frontend,
+            root.path(),
+            &data,
+            &CancellationToken::new(),
+        )
+        .unwrap();
         for file in ["index.html", "articles/index.html", "article/7/index.html"] {
             let source = std::fs::read_to_string(root.path().join(file)).unwrap();
             let html = scraper::Html::parse_document(&source);
@@ -476,7 +485,16 @@ mod tests {
         assert_eq!(schema["headline"], title);
         let cancelled = CancellationToken::new();
         cancelled.cancel();
-        assert!(write(&frontend, &root.path().join("cancelled"), &data, &cancelled).is_err());
+        assert!(
+            write(
+                &plugins::Registry::default(),
+                &frontend,
+                &root.path().join("cancelled"),
+                &data,
+                &cancelled
+            )
+            .is_err()
+        );
         assert!(!root.path().join("cancelled").exists());
     }
 

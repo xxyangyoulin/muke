@@ -21,8 +21,23 @@ use tokio_util::sync::CancellationToken;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Task {
-    Image { source: String },
-    PluginSync { plugin: String, params: Value },
+    Image {
+        source: String,
+    },
+    PluginSync {
+        plugin: String,
+        params: Value,
+    },
+    PluginInstall {
+        source_kind: String,
+        source: String,
+        #[serde(default)]
+        path: String,
+    },
+    PluginDiscover {
+        source_kind: String,
+        source: String,
+    },
     Export {},
     Deploy {},
     Backup {},
@@ -32,6 +47,8 @@ impl Task {
         match self {
             Self::Image { .. } => "image",
             Self::PluginSync { .. } => "plugin_sync",
+            Self::PluginInstall { .. } => "plugin_install",
+            Self::PluginDiscover { .. } => "plugin_discover",
             Self::Export { .. } => "export",
             Self::Deploy { .. } => "deploy",
             Self::Backup { .. } => "backup",
@@ -41,6 +58,7 @@ impl Task {
         match self {
             Self::Image { source } => format!("image:{source}"),
             Self::PluginSync { plugin, .. } => format!("plugin:{plugin}"),
+            Self::PluginInstall { .. } | Self::PluginDiscover { .. } => "plugin_install".into(),
             // 导出与部署共写同一产物目录，必须串行
             Self::Export { .. } | Self::Deploy { .. } => "export".into(),
             Self::Backup { .. } => "backup".into(),
@@ -56,6 +74,11 @@ pub struct Context {
     pub stop: CancellationToken,
 }
 impl Context {
+    pub async fn log(&self, text: &str) -> Result<()> {
+        sqlx::query("INSERT INTO job_logs(job_id,output) VALUES(?,substr(?,-65536)) ON CONFLICT(job_id) DO UPDATE SET output=substr(output||excluded.output,-65536)")
+            .bind(self.id).bind(text).execute(&self.pool).await?;
+        Ok(())
+    }
     pub fn check(&self) -> Result<()> {
         if self.stop.is_cancelled() {
             bail!("任务已取消");
@@ -86,6 +109,7 @@ pub async fn open(directory: &Path) -> Result<SqlitePool> {
     sqlx::query("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, resource TEXT NOT NULL, dedup TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', cancel_requested INTEGER NOT NULL DEFAULT 0, phase TEXT NOT NULL DEFAULT '', completed INTEGER NOT NULL DEFAULT 0, total INTEGER, result TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, started_at TEXT, finished_at TEXT)").execute(&mut *tx).await?;
     sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS jobs_active ON jobs(dedup) WHERE state IN ('queued','running')").execute(&mut *tx).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS schedules (key TEXT PRIMARY KEY, payload TEXT NOT NULL, interval_seconds INTEGER NOT NULL, next_run INTEGER NOT NULL)").execute(&mut *tx).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS job_logs (job_id INTEGER PRIMARY KEY REFERENCES jobs(id), output TEXT NOT NULL)").execute(&mut *tx).await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS deferred (key TEXT PRIMARY KEY, due_at INTEGER NOT NULL)",
     )
@@ -210,6 +234,9 @@ async fn schedule(app: &App) -> Result<()> {
     Ok(())
 }
 pub async fn run(app: App, root: PathBuf, stop: CancellationToken) -> Result<()> {
+    sqlx::query("UPDATE llm_calls SET status='interrupted' WHERE status='running'")
+        .execute(&app.db)
+        .await?;
     let mut jobs = JoinSet::new();
     let mut schedule_at = tokio::time::Instant::now();
     loop {
@@ -290,6 +317,8 @@ async fn execute(
                 Ok(json!({"images":2}))
             }
             Task::PluginSync{plugin,params}=>crate::plugins::run(app,&ctx,&plugin,params).await,
+            Task::PluginInstall{source_kind,source,path}=>crate::plugins::install::run(app,&ctx,&source_kind,&source,&path).await,
+            Task::PluginDiscover{source_kind,source}=>crate::plugins::install::discover(&ctx,&source_kind,&source).await,
             Task::Export{}=>crate::export::site::export(app,&app.config.frontend,&app.config.export_dir,&ctx).await,
             Task::Deploy{}=>crate::deploy::run(app,&ctx).await,
             Task::Backup{}=>crate::backup::run(app,&ctx).await,

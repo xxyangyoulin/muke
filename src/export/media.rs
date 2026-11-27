@@ -34,6 +34,7 @@ pub async fn copy_sources(
             serde_json::from_str(post["images"].as_str().unwrap_or("[]")).unwrap_or_default();
         references.extend(images);
         references.extend(plugins::post_refs(
+            &app.plugins,
             post["source"].as_str().unwrap_or(""),
             post["meta"].as_str().unwrap_or(""),
         ));
@@ -240,6 +241,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: network::Client::new(None),
@@ -319,7 +321,8 @@ mod tests {
             json!({"source":"rss","id":1,"images":[descriptors[&format!("up:{name}")]]}),
             json!({"source":"","id":2}),
         ];
-        let (items, metadata) = plugins::export_data(&plugin_snapshots, &posts, &descriptors);
+        let (items, metadata) =
+            plugins::export_data(&app.plugins, &plugin_snapshots, &posts, &descriptors);
         assert_eq!(items["rss"]["posts"].as_array().unwrap().len(), 1);
         assert_eq!(items["rss"]["posts"][0], posts[0]);
         assert_eq!(items["rss"]["feeds"][0]["count"], 1);

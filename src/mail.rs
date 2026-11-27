@@ -180,6 +180,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: crate::database::open(&data).await.unwrap(),
             tasks: crate::tasks::open(&root.path().join("work")).await.unwrap(),
             network: crate::network::Client::new(None),

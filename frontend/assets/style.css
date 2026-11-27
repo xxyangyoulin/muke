@@ -444,3 +444,5 @@ img.comment-avatar{object-fit:cover}
 .revision-removed:before{content:'−';position:absolute;left:10px}.revision-added:before{content:'+';position:absolute;left:10px}
 .editor-bottom .dialog-actions{flex-wrap:wrap}
 @media(max-width:760px){.history-layout{grid-template-columns:minmax(0,1fr)}.history-sidebar{max-height:180px}#revision-detail{max-height:none}.article-history-dialog{padding:16px}}
+
+.task-log-output { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

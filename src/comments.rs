@@ -616,6 +616,7 @@ mod submit_tests {
         let mut client = network::Client::new(None);
         client.fixture = Some(fixture.clone());
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: client,
@@ -777,6 +778,7 @@ mod cache_tests {
         let mut client = network::Client::new(None);
         client.fixture = Some(fixture.clone());
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.path().join("work")).await.unwrap(),
             network: client,

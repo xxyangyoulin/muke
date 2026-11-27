@@ -35,6 +35,9 @@ pub async fn create(app: &App, archive: &Path, stop: &CancellationToken) -> Resu
             .execute(&app.db)
             .await?;
         let mut paths: Vec<(String, PathBuf)> = vec![("uploads".into(), app.data.join("uploads"))];
+        if app.data.join("extensions").is_dir() {
+            paths.push(("extensions".into(), app.data.join("extensions")));
+        }
         for name in ["avatar.webp", "cover.webp"] {
             let path = app.data.join(name);
             if tokio::fs::try_exists(&path).await? {
@@ -221,6 +224,13 @@ pub async fn restore(archive: &Path, target: &Path) -> Result<()> {
                 let mut output = std::fs::File::create(&path)?;
                 std::io::copy(&mut entry, &mut output)?;
                 output.sync_all()?;
+                let relative = path.strip_prefix(&target)?;
+                if relative.starts_with("extensions")
+                    && relative.file_name().is_some_and(|name| name == "plugin")
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    output.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+                }
             }
             Ok(manifest)
         }
@@ -355,6 +365,7 @@ mod tests {
             ..Config::default()
         };
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&root.join("work")).await.unwrap(),
             network: network::Client::new(None),

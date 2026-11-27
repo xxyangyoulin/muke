@@ -107,7 +107,7 @@ pub async fn recover(app: &App) -> Result<bool> {
 }
 
 pub async fn delete(app: &App, input: Value) -> Result<Value> {
-    let _operation = super::super::mutation_guard("wallpapers")?;
+    let _operation = super::super::mutation_guard(app, "wallpapers")?;
     let _content = app.content_lock.write().await;
     if recover(app).await? {
         return Err(Error::invalid("壁纸磁盘离线，等待恢复未完成的文件操作"));

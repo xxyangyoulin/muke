@@ -262,16 +262,43 @@ pub async fn post(
             tx.commit().await?;
             json!({"ok":true})
         }
+        "install-plugin" | "discover-plugins" => {
+            let kind = input.string("source_kind")?;
+            let source = crate::plugins::install::source(kind, input.string("source")?)
+                .map_err(|error| Error::invalid(error.to_string()))?;
+            let task = if action == "discover-plugins" {
+                crate::tasks::Task::PluginDiscover {
+                    source_kind: kind.into(),
+                    source,
+                }
+            } else {
+                let path = crate::plugins::install::subdirectory(
+                    input.value["path"].as_str().unwrap_or(""),
+                )
+                .map_err(|error| Error::invalid(error.to_string()))?;
+                crate::tasks::Task::PluginInstall {
+                    source_kind: kind.into(),
+                    source,
+                    path,
+                }
+            };
+            let id = crate::tasks::submit(&app.tasks, &task)
+                .await
+                .map_err(crate::tasks::api_error)?;
+            json!({"ok":true,"task_id":id})
+        }
+        "save-llm-profile" => crate::llm::save(&app, &input.value).await?,
+        "delete-llm-profile" => crate::llm::remove(&app, input.id("id")?).await?,
         "save-plugin" => crate::plugins::save(&app, &input.value).await?,
         "remove-plugin" => crate::plugins::remove(&app, &input.value, true).await?,
         "purge-plugin-posts" => crate::plugins::remove(&app, &input.value, false).await?,
         "sync-plugin" => {
-            crate::plugins::enqueue(
-                &app,
-                input.string("id")?,
-                json!({"all":input.value["all"]==1 || input.value["all"]==true}),
-            )
-            .await?
+            let mut params = input.value.get("params").cloned().unwrap_or(json!({}));
+            if !params.is_object() {
+                return Err(Error::invalid("插件任务参数必须为对象"));
+            }
+            params["all"] = json!(input.value["all"] == 1 || input.value["all"] == true);
+            crate::plugins::enqueue(&app, input.string("id")?, params).await?
         }
         "plugin-admin" => {
             let plugin = crate::plugins::enabled(&app, input.string("id")?).await?;

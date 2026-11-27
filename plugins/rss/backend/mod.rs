@@ -272,7 +272,7 @@ impl Plugin for Rss {
     async fn admin(&self, app: &App, input: Value) -> Result<Value> {
         match input["op"].as_str().unwrap_or("") {
             "add" => {
-                let _operation = super::mutation_guard(self.id())?;
+                let _operation = super::mutation_guard(app, self.id())?;
                 let url = input["url"].as_str().unwrap_or("").trim();
                 if url.chars().count() > 500 {
                     return Err(Error::invalid("订阅地址过长"));
@@ -318,7 +318,7 @@ impl Plugin for Rss {
                 super::enqueue(app, "rss", json!({"feed":id,"all":false})).await
             }
             "remove" => {
-                let _operation = super::mutation_guard(self.id())?;
+                let _operation = super::mutation_guard(app, self.id())?;
                 remove(
                     app,
                     feed_id(&input)?,
@@ -793,6 +793,7 @@ mod tests {
         let mut client = network::Client::new(None);
         client.fixture = Some(fixture.clone());
         let app = App {
+            plugins: crate::plugins::Registry::default(),
             db: database::open(&data).await.unwrap(),
             tasks: tasks::open(&work).await.unwrap(),
             network: client,

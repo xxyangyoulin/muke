@@ -1,0 +1,16 @@
+{
+  "protocol": 1,
+  "id": "hello",
+  "version": "0.1.0",
+  "binary": "muke-plugin-hello",
+  "name": "独立插件示例",
+  "description": "独立编译的示例：发布动态、自定义页面和静态导出。",
+  "label_color": "#6750a4",
+  "methods": ["sync", "data", "admin", "export"],
+  "fields": [
+    {"key": "message", "label": "问候内容", "type": "text", "default": "你好，MUKE！", "max": 200},
+    {"key": "sync_minutes", "label": "同步间隔（分钟）", "type": "number", "default": 30, "min": 1, "max": 1440}
+  ],
+  "frontend": {"module": "plugin.js", "style": "plugin.css"},
+  "page": {"route": "/hello", "title": "独立插件", "description": "独立插件示例页面", "tab": true}
+}
