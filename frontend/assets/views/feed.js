@@ -178,11 +178,11 @@ export function bindFeedSearch() {
 
 const SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.8"/><path d="m16 16 5 5"/></svg>';
 
-// 顶部标签：日常动态 / 插件声明 page.tab 的页面（state.plugins 提供，如 RSS 订阅）/ 文章随笔
+// 顶部标签：日常动态 / 文章随笔 / 插件声明 page.tab 的页面（如 RSS 订阅，排最后）
 export function topTabsHTML(active = 'feed') {
  const tabs = [['feed', '/', '日常动态']];
- for (const [id, p] of Object.entries(store.state?.plugins || {})) if (p.page?.tab) tabs.push([id, p.page.route + '/', p.page.title]);
  tabs.push(['articles', '/articles/', '文章随笔']);
+ for (const [id, p] of Object.entries(store.state?.plugins || {})) if (p.page?.tab) tabs.push([id, p.page.route + '/', p.page.title]);
  return `<div class="top-tabs">${tabs.map(([key, href, label]) => `<a class="tab${key === active ? ' selected' : ''}" href="${esc(href)}">${esc(label)}</a>`).join('')}</div>`;
 }
 

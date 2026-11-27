@@ -110,6 +110,11 @@ fn write_extras(destination: &Path, data: &Data) -> Result<()> {
         )?;
         headers.push_str("/embed/*\n  Content-Security-Policy: default-src 'self'; script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src * data: blob:; font-src * data:; connect-src *; frame-ancestors 'self'\n");
     }
+    // 内容寻址资源（上传图为哈希文件名，插件媒体按内容格式命名）可长缓存；
+    // 入口与 JSON 数据保持默认协商
+    headers.push_str(
+        "/media/uploads/*\n  Cache-Control: public, max-age=31536000, immutable\n/media/plugins/*\n  Cache-Control: public, max-age=31536000, immutable\n/thumbnails/*\n  Cache-Control: public, max-age=31536000, immutable\n",
+    );
     std::fs::write(destination.join("_headers"), headers)?;
     Ok(())
 }

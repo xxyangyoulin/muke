@@ -713,7 +713,7 @@ pub async fn giscus_counts_cached(
     stop: &CancellationToken,
 ) -> Result<BTreeMap<String, Value>> {
     let settings = Settings::load(app).await?;
-    let ttl = (settings.number("giscus_refresh_hours").max(0) as i64) * 3600;
+    let ttl = settings.number("giscus_refresh_hours").max(0) * 3600;
     let mut counts = BTreeMap::new();
     let mut stale: Vec<String> = Vec::new();
     if ttl > 0 {

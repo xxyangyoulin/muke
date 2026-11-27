@@ -245,7 +245,7 @@ pub fn write(
             .join(route.trim_start_matches('/'))
             .join("index.html");
         std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(path, html)?;
+        std::fs::write(path, minify_html(&html))?;
     }
     Ok(())
 }
@@ -306,6 +306,77 @@ fn page_shell(
         1,
     );
     Ok(html)
+}
+
+/// 静态产物 HTML 压缩（对齐 PHP minify_html 的保守子集）：删除注释、
+/// 折叠标签间含换行的空白与文本内空白串；pre/textarea/script/style 原样保留。
+fn minify_html(html: &str) -> String {
+    let bytes = html.as_bytes();
+    let mut output = String::with_capacity(html.len());
+    let mut index = 0;
+    let mut last_was_tag = false;
+    while index < html.len() {
+        if bytes[index] == b'<' {
+            if html[index..].starts_with("<!--")
+                && !html[index..].starts_with("<!--[if")
+                && let Some(end) = html[index..].find("-->")
+            {
+                index += end + 3;
+                continue;
+            }
+            if let Some(raw) = ["<pre", "<textarea", "<script", "<style"]
+                .iter()
+                .find(|tag| {
+                    html[index..].starts_with(*tag)
+                        && html[index + tag.len()..]
+                            .chars()
+                            .next()
+                            .is_some_and(|next| {
+                                next == '>' || next == ' ' || next == '\n' || next == '\t'
+                            })
+                })
+            {
+                let closing = format!("</{}", &raw[1..]);
+                if let Some(end) = html[index..].find(&closing) {
+                    let end = html[index + end..]
+                        .find('>')
+                        .map(|offset| index + end + offset + 1)
+                        .unwrap_or(html.len());
+                    output.push_str(&html[index..end]);
+                    index = end;
+                    last_was_tag = false;
+                    continue;
+                }
+            }
+            if let Some(end) = html[index..].find('>') {
+                output.push_str(&html[index..index + end + 1]);
+                index += end + 1;
+                last_was_tag = true;
+                continue;
+            }
+        }
+        let rest = &html[index..];
+        let whitespace: usize = rest
+            .chars()
+            .take_while(|c| c.is_ascii_whitespace())
+            .map(char::len_utf8)
+            .sum();
+        if whitespace > 0 {
+            let has_newline = rest[..whitespace].contains('\n');
+            let next_is_tag = rest[whitespace..].starts_with('<');
+            if !(has_newline && (last_was_tag || next_is_tag)) {
+                output.push(' ');
+            }
+            index += whitespace;
+            last_was_tag = false;
+            continue;
+        }
+        let step = rest.chars().next().map_or(1, char::len_utf8);
+        output.push_str(&rest[..step]);
+        index += step;
+        last_was_tag = false;
+    }
+    output
 }
 
 #[cfg(test)]
@@ -407,5 +478,24 @@ mod tests {
         cancelled.cancel();
         assert!(write(&frontend, &root.path().join("cancelled"), &data, &cancelled).is_err());
         assert!(!root.path().join("cancelled").exists());
+    }
+
+    #[test]
+    fn html_minify_collapses_template_whitespace_but_keeps_sensitive_regions() {
+        let source = concat!(
+            "<div>\n  <p>你好 <b>世界</b>  第二段</p>\n  <!-- 注释 -->\n</div>",
+            "\n<pre>  保留\n  原样  </pre>",
+            "\n<script type=\"application/json\">{\"a\": 1}</script>",
+        );
+        let minified = minify_html(source);
+        assert_eq!(
+            minified,
+            concat!(
+                "<div><p>你好 <b>世界</b> 第二段</p></div>",
+                "<pre>  保留\n  原样  </pre>",
+                "<script type=\"application/json\">{\"a\": 1}</script>",
+            )
+        );
+        assert!(!minified.contains("注释"));
     }
 }
