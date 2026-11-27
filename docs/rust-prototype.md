@@ -148,6 +148,15 @@ Netlify 部署已迁移到统一任务：`src/deploy.rs` 以摘要式增量上�
 - **XML 编码**：解码夹具扩到 EUC-JP、Big5、EUC-KR、Windows-1251 与大小写标签。
 - **在线验证**：giscus 计数已对真实服务验证——实际 Rust 客户端查询 xxyangyoulin/muke 仓库，404 "Discussion not found" 按零计数返回，请求构造与响应契约均与线上一致（该仓库当前各 term 均无讨论，成功分页路径由夹具覆盖）。
 
+## 优化轮（2026-11-27）
+
+- **导航对齐**：动态站前端启动时把声明 `page.nav` 的插件注入左侧菜单（图标 + 实时计数徽标），静态烘焙输出相同标记并补访客「探索风景」按钮；仅 `page.tab` 的插件（RSS）走首页顶栏并排在「文章随笔」之后。
+- **giscus 计数缓存**：`giscus_counts` 表按 `giscus_refresh_hours`（默认 24，0 = 每次都查）复用结果，导出/部署只查新增或过期项；后台评论设置可改间隔。
+- **静态产物单文件打包**：`export/bundle.rs` 把 registry、前端 ES 模块图与启用插件模块拼为单个经典脚本（每页 JS 请求 ~25 → 1）；视图层循环依赖以单作用域拼接支持，插件模块 IIFE 隔离，别名导入或顶层重名自动回退模块化复制；加载器对已打包插件跳过动态 import。
+- **缓存策略**：动态服务仅 `/api` 与 `/image` 强制 no-store，静态资源 no-cache 协商；静态产物 `_headers` 对 `/media/*`、`/thumbnails/*` 加 immutable 一年缓存。
+- **HTML 压缩**：静态页面烘焙后压缩（去注释、折叠模板缩进空白；pre/textarea/script 原样），对齐 PHP `minify_html` 行为。
+- **部署 panic 修复**：giscus 计数挂载循环对数组形状的插件导出（壁纸图库）改为安全查找。
+
 ## 生产切换（2026-11-27）
 
 本机已完成从 PHP 到 Rust 的切换：PHP 数据经 `VACUUM INTO` 快照与文件复制迁至 `var-rust/`（切换前核对表计数、最新动态、文章、设置与图片服务全部一致）；PHP 侧全部停止——PM2 `mkblog-sync`、`/etc/nginx/mkblog.conf` 的 nginx 实例、php-fpm 的 mkblog 池（配置改名 `.disabled` 并 reload，socket 已移除，无相关 cron）。Rust 以 PM2 进程 `muke` 监听 `0.0.0.0:8765` 接管原端口，`pm2 save` 已持久化；站点、管理界面、五个插件、图片与任务系统均在新实例上运行，PHP `var/` 原样保留作回退。回退步骤：恢复 php-fpm 池配置并 reload、重启 mkblog nginx 与 `mkblog-sync`、停 `muke`。
