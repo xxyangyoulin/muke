@@ -96,8 +96,14 @@ pub async fn build(
             }
         }
         let (mut plugin_items, plugin_meta) = plugins::export_data(&plugin_snapshots, &posts, &media);
-        for item in plugin_items.as_object_mut().into_iter().flat_map(|items| items.values_mut()) {
-            if let Some(items) = item["posts"].as_array_mut() {
+        // 插件导出值可能是任意形状（如壁纸的图库数组），只对对象里的 posts 数组挂载计数
+        for posts_value in plugin_items
+            .as_object_mut()
+            .into_iter()
+            .flat_map(|items| items.values_mut())
+            .filter_map(|item| item.get_mut("posts"))
+        {
+            if let Some(items) = posts_value.as_array_mut() {
                 for post in items {
                     if let Some(value) = counts.get(&format!("post:{}", post["id"])) {
                         post["giscus_counts"] = value.clone();
@@ -317,7 +323,14 @@ mod tests {
             content_lock: Arc::new(tokio::sync::RwLock::new(())),
         };
         plugins::migrate(&app).await.unwrap();
+        // 壁纸插件导出的是数组（生产组合），确保挂载循环对数组形状安全
+        let wallpaper_dir = root.path().join("pictures");
+        std::fs::create_dir_all(&wallpaper_dir).unwrap();
+        image::RgbImage::new(80, 60)
+            .save(wallpaper_dir.join("picture.jpg"))
+            .unwrap();
         for (key, value) in [
+            ("wallpapers_enabled", "1"),
             ("plugin:rss:enabled", "1"),
             ("plugin:rss:in_feed", "0"),
             ("comment_provider", "giscus"),
@@ -356,6 +369,15 @@ mod tests {
                 .await
                 .unwrap();
         }
+        sqlx::query("INSERT INTO wallpapers(id,path,name,width,height,bytes,mtime) VALUES('wall1','picture.jpg','壁纸',80,60,0,0)")
+            .execute(&app.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO settings VALUES('wallpaper_dir',?)")
+            .bind(wallpaper_dir.to_str().unwrap())
+            .execute(&app.db)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO articles(title,content,format,created_at,updated_at) VALUES('title','body','html','2026','2026')")
             .execute(&app.db)
             .await
@@ -365,6 +387,13 @@ mod tests {
         let snapshot = snapshot::capture(&app, &stop).await.unwrap();
         let output = build(&app, snapshot, artifact.path(), &stop).await.unwrap();
         assert_eq!(output.content["posts"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            output.content["plugins"]["wallpapers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(
             output.content["posts"][0]["giscus_counts"],
             json!({"comments":3,"likes":4})

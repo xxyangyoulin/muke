@@ -51,8 +51,9 @@ pub async fn export(
     let mut plugins = serde_json::Map::new();
     if let Some(items) = data.content["plugins"].as_object() {
         for (id, item) in items {
-            let count = item["posts"]
-                .as_array()
+            let count = item
+                .get("posts")
+                .and_then(Value::as_array)
                 .or_else(|| item.as_array())
                 .map(|items| items.len())
                 .unwrap_or_default();

@@ -488,8 +488,14 @@ pub fn export_data(
     for plugin in PLUGINS {
         if let Some(snapshot) = snapshots.get(plugin.id()) {
             let data = plugin.export_data(&snapshot.data, posts, media);
-            items.insert(plugin.id().into(), data["items"].clone());
-            metadata.insert(plugin.id().into(), data["meta"].clone());
+            items.insert(
+                plugin.id().into(),
+                data.get("items").cloned().unwrap_or(Value::Null),
+            );
+            metadata.insert(
+                plugin.id().into(),
+                data.get("meta").cloned().unwrap_or(Value::Null),
+            );
         }
     }
     (Value::Object(items), Value::Object(metadata))
