@@ -24,7 +24,7 @@ export const verifiedBadge = '<svg viewBox="0 0 22 22" fill="currentColor" aria-
 
 export const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function toast(message) { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('visible'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('visible'), 3500); }
+export function toast(message) { const el = document.querySelector('#toast'); el.textContent = message; if (el.showPopover) { try { el.showPopover(); } catch {} } else el.classList.add('visible'); clearTimeout(toast.timer); toast.timer = setTimeout(() => { if (el.hidePopover) { try { el.hidePopover(); } catch {} } else el.classList.remove('visible'); }, 3500); }
 
 export const o = (k, d) => (store.state?.options?.[k] ?? d);
 

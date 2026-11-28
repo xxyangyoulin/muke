@@ -106,7 +106,8 @@ def main():
             for index in range(80):shutil.copyfile(third,walls/f'pending-{index}.png')
             task=admin.call('sync-plugin',{'id':'wallpapers'})[1]['task_id']
             until(lambda:job(task)['state']=='running')
-            assert admin.call('save-plugin',{'id':'wallpapers','enabled':0})[0]==409
+            # 保存配置不再与插件任务互斥，执行中也可保存（立即成功）
+            assert admin.call('save-plugin',{'id':'wallpapers','values':{}})[0]==200
             assert admin.call('cancel-task',{'id':task})[0]==200
             assert done(task)['state']=='cancelled'
             assert len(gallery()['items'])==2

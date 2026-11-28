@@ -118,6 +118,18 @@ def main():
                 assert 'secret-never-public' not in json.dumps(data)
                 headers=calls[-1][1]
                 assert ('x-api-key' in {k.lower() for k in headers})==(protocol=='anthropic')
+            # 一键连通性测试：已保存配置、表单值（未保存）与失败路径
+            assert guest.call('test-llm-profile',{'id':1})[0]==401
+            tested=admin.call('test-llm-profile',{'id':profile('responses')})[1]
+            assert tested['ok'] and isinstance(tested['ms'],int) and tested['text']=='analysis result',tested
+            form_values={'id':None,'protocol':'responses','base_url':f'http://127.0.0.1:{server.server_port}/v1','model':'form-model','max_tokens':256,'api_key':'form-key'}
+            assert admin.call('test-llm-profile',form_values)[1]['text']=='analysis result'
+            status,error=admin.call('test-llm-profile',{**form_values,'protocol':'anthropic','model':'failed'})
+            assert status==422 and 'HTTP 401' in error['error'],error
+            status,error=admin.call('test-llm-profile',{**form_values,'api_key':''})
+            assert status==422 and 'API Key' in error['error'],error
+            status,error=admin.call('test-llm-profile',{'id':99999})
+            assert status==404,error
             subprocess.run(['node',str(ROOT/'tests/rust/llm-browser.cjs'),base,str(repo)],check=True)
             assert 'secret-never-public' not in json.dumps(guest.state())
             assert done(sync(profile('responses','failed')))['state']=='failed'
@@ -140,6 +152,7 @@ def main():
                 description['page']={**manifest['page'],'route':'/'+name}
                 (directory/'plugin.json').write_text(json.dumps(description))
                 (directory/'src/main.rs').write_text(source.replace('"id":"hello"',f'"id":"{name}"'))
+                (directory/'frontend/plugin.js').write_text((plugin/'frontend/plugin.js').read_text().replace("'/hello'",f"'/{name}'"))
                 installed=admin.call('install-plugin',{'source_kind':'local','source':str(repo),'path':'plugins/'+name})[1]
                 assert done(installed['task_id'])['state']=='succeeded'
                 assert admin.call('save-plugin',{'id':name,'enabled':1,'values':{}})[0]==200
@@ -159,6 +172,8 @@ def main():
             admin.call('cancel-task',{'id':waiting});assert done(waiting)['state']=='cancelled'
             assert attempts['gate']==2
             assert not any(c['task_id']==waiting for c in admin.call('llm-profiles')[1]['calls'])
+            # 运行中的任务带日志，正好用于任务页的行内日志、过滤与弹窗验证
+            subprocess.run(['node',str(ROOT/'tests/rust/tasks-browser.cjs'),base],check=True)
             gate.set()
             assert all(done(task)['state']=='succeeded' for task in running)
             assert done(sync(shared,'third'))['state']=='succeeded'

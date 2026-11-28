@@ -146,7 +146,7 @@ pub async fn submit(pool: &SqlitePool, task: &Task) -> Result<i64> {
         .bind(task.kind()).bind(task.resource()).bind(crate::auth::digest(&payload)).bind(payload).fetch_one(pool).await?)
 }
 pub async fn list(pool: &SqlitePool) -> Result<Value> {
-    let rows = sqlx::query("SELECT id,kind,state,cancel_requested,phase,completed,total,result,error,created_at,started_at,finished_at FROM jobs ORDER BY id DESC LIMIT 100").fetch_all(pool).await?;
+    let rows = sqlx::query("SELECT j.id,j.kind,j.state,j.cancel_requested,j.phase,j.completed,j.total,j.result,j.error,j.created_at,j.started_at,j.finished_at,(SELECT substr(output,-2048) FROM job_logs WHERE job_id=j.id) AS log_tail FROM jobs j ORDER BY j.id DESC LIMIT 100").fetch_all(pool).await?;
     let mut jobs: Vec<Value> = rows.into_iter().map(crate::api::row_json).collect();
     for job in &mut jobs {
         job["cancel_requested"] = json!(job["cancel_requested"] == 1);

@@ -288,6 +288,7 @@ pub async fn post(
             json!({"ok":true,"task_id":id})
         }
         "save-llm-profile" => crate::llm::save(&app, &input.value).await?,
+        "test-llm-profile" => crate::llm::test(&app, &input.value).await?,
         "delete-llm-profile" => crate::llm::remove(&app, input.id("id")?).await?,
         "save-plugin" => crate::plugins::save(&app, &input.value).await?,
         "remove-plugin" => crate::plugins::remove(&app, &input.value, true).await?,

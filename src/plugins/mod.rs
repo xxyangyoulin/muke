@@ -293,7 +293,8 @@ pub async fn admin_list(app: &App) -> Result<Value> {
 }
 pub async fn save(app: &App, input: &Value) -> Result<Value> {
     let plugin = app.plugins.get(input["id"].as_str().unwrap_or(""))?;
-    let _operation = mutation_guard(app, plugin.id())?;
+    // 保存配置不等待插件任务：设置写入与联动都在事务内，由数据库串行化；
+    // 移除/清空等破坏性操作仍持门闸即时冲突
     let mut changes = Vec::new();
     let mut values = input["values"].as_object().cloned().unwrap_or_default();
     if input["enabled"] == 1 || input["enabled"] == true {

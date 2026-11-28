@@ -21,7 +21,7 @@
 </aside>
 <main id="main" tabindex="-1"><div class="loading">正在载入…</div></main>
 </div>
-<div id="toast" role="status" aria-live="polite"></div>
+<div id="toast" role="status" aria-live="polite" popover="manual"></div>
 <div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
 <div class="lightbox-backdrop" data-lb-close></div>
 <div class="lightbox-stage"><div class="lb-loading"><span></span>正在展开风景…</div></div>
@@ -34,4 +34,5 @@
 <dialog id="plugin-settings-dialog"><form id="plugin-settings-form"><div class="section-heading"><h2 id="plugin-settings-title">插件设置</h2><button class="icon-button" type="button" data-close="plugin-settings-dialog" aria-label="关闭"><span data-icon="close"></span></button></div><p class="small-label" id="plugin-settings-desc"></p><div class="options-grid" id="plugin-settings-fields"></div><div class="dialog-actions"><button class="secondary" type="button" data-close="plugin-settings-dialog">取消</button><button class="primary" type="submit">保存设置</button></div></form></dialog>
 <dialog id="delete-dialog"><h2>删除这条动态？</h2><p>删除后无法恢复。</p><div class="dialog-actions"><button class="secondary" data-close="delete-dialog">取消</button><button class="danger" id="confirm-delete">确认删除</button></div></dialog>
 <dialog id="plugin-remove-dialog"><h2 id="plugin-remove-title">移除插件？</h2><p>插件将被停用并清除配置；已同步的动态可选择保留或一并删除。</p><label class="switch-line"><input type="checkbox" id="plugin-remove-purge"> 同时删除它已同步的动态（不可恢复）</label><div class="dialog-actions"><button class="secondary" data-close="plugin-remove-dialog">取消</button><button class="danger" id="confirm-plugin-remove">确认移除</button></div></dialog>
+<dialog id="task-log-dialog"><div class="section-heading"><h2 id="task-log-dialog-title">任务日志</h2><button class="icon-button" type="button" data-close="task-log-dialog" aria-label="关闭日志"><span data-icon="close"></span></button></div><p class="small-label" id="task-log-dialog-meta"></p><pre id="task-log-dialog-output" class="task-log-terminal task-log-dialog-output"></pre></dialog>
 </body></html>

@@ -280,7 +280,8 @@ def main():
             state['slow']=True
             task=admin.call('sync-plugin',{'id':'weibo'})[1]['task_id']
             until(lambda:job(task)['state']=='running')
-            assert admin.call('save-plugin',{'id':'weibo','enabled':0})[0]==409
+            # 任务执行中保存配置立即成功，不与插件任务互斥
+            assert admin.call('save-plugin',{'id':'weibo','values':{}})[0]==200
             assert admin.call('cancel-task',{'id':task})[0]==200
             assert done(task)['state']=='cancelled'
             assert not (data/'runtime'/f'job-{task}').exists()

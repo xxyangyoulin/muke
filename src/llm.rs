@@ -102,6 +102,125 @@ pub async fn remove(app: &App, id: i64) -> Result<Value> {
     Ok(json!({"ok":true}))
 }
 
+/// 一键连通性测试：可用表单当前值（未保存也可测，密钥留空回退已保存值），
+/// 或只传 id 测试已保存配置。发起一次最小请求，不写入调用记录。
+pub async fn test(app: &App, input: &Value) -> Result<Value> {
+    let started = std::time::Instant::now();
+    let profile = if input.get("protocol").is_some() {
+        let field = |key: &str| -> Result<String> {
+            let value = input[key].as_str().unwrap_or("").trim();
+            if value.is_empty() || value.len() > 1000 || value.contains(['\r', '\n']) {
+                return Err(Error::invalid(format!("{key} 无效")));
+            }
+            Ok(value.into())
+        };
+        let protocol = field("protocol")?;
+        if !matches!(
+            protocol.as_str(),
+            "responses" | "chat_completions" | "anthropic"
+        ) {
+            return Err(Error::invalid("模型协议无效"));
+        }
+        let base_url = field("base_url")?.trim_end_matches('/').to_owned();
+        let url =
+            crate::network::parse_url(&base_url).map_err(|e| Error::invalid(e.to_string()))?;
+        if url.query().is_some() || url.fragment().is_some() {
+            return Err(Error::invalid("模型地址不能包含查询参数或片段"));
+        }
+        let model = field("model")?;
+        if model.len() > 200 {
+            return Err(Error::invalid("model 无效"));
+        }
+        let max_tokens = input["max_tokens"].as_i64().unwrap_or(2048);
+        if !(256..=16384).contains(&max_tokens) {
+            return Err(Error::invalid("输出上限应为 256–16384 tokens"));
+        }
+        let key = input["api_key"].as_str().unwrap_or("").trim();
+        if key.len() > 4000 || key.contains(['\r', '\n']) {
+            return Err(Error::invalid("API Key 无效"));
+        }
+        let id = input["id"].as_i64();
+        let key = if key.is_empty() {
+            match id {
+                Some(id) => {
+                    let previous =
+                        sqlx::query_as::<_, Profile>("SELECT * FROM llm_profiles WHERE id=?")
+                            .bind(id)
+                            .fetch_optional(&app.db)
+                            .await?
+                            .ok_or_else(|| Error::not_found("模型配置不存在"))?;
+                    if previous.base_url != base_url {
+                        return Err(Error::invalid("修改接口地址时请重新填写 API Key"));
+                    }
+                    previous.api_key
+                }
+                None => return Err(Error::invalid("请填写 API Key")),
+            }
+        } else {
+            key.to_owned()
+        };
+        Profile {
+            id: id.unwrap_or_default(),
+            name: String::new(),
+            protocol,
+            base_url,
+            api_key: key,
+            model,
+            max_tokens,
+        }
+    } else {
+        let id = input["id"]
+            .as_i64()
+            .ok_or_else(|| Error::invalid("缺少模型配置"))?;
+        sqlx::query_as::<_, Profile>("SELECT * FROM llm_profiles WHERE id=?")
+            .bind(id)
+            .fetch_optional(&app.db)
+            .await?
+            .ok_or_else(|| Error::not_found("模型配置不存在"))?
+    };
+    let (address, headers, body) =
+        payload(&profile, "这是一次连通性测试，请只回复两个字：正常", "ping");
+    let (status, bytes) = app
+        .network
+        .request(
+            &address,
+            "POST",
+            &headers,
+            Some(serde_json::to_vec(&body).map_err(|e| Error::invalid(e.to_string()))?),
+            None,
+            Duration::from_secs(30),
+            true,
+            2 * 1024 * 1024,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .map_err(|error| Error::invalid(format!("无法连接模型服务：{error}")))?;
+    if !(200..300).contains(&status) {
+        return Err(Error::invalid(format!(
+            "模型服务返回 HTTP {status}，请检查地址、密钥或额度"
+        )));
+    }
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|_| Error::invalid("模型服务没有返回 JSON"))?;
+    // 连通性以协议形状为准（截断也算连通），尽力提取回复文本
+    let shape = match profile.protocol.as_str() {
+        "responses" => value["output"].is_array() || value["status"].is_string(),
+        "chat_completions" => value["choices"].is_array(),
+        "anthropic" => value["content"].is_array() || value["stop_reason"].is_string(),
+        _ => false,
+    };
+    if !shape {
+        return Err(Error::invalid(
+            "模型服务已连接，但返回格式不符合所选协议，请核对协议类型",
+        ));
+    }
+    let text = response(&profile.protocol, &value)
+        .ok()
+        .and_then(|value| value["text"].as_str().map(str::to_owned))
+        .unwrap_or_default();
+    Ok(json!({"ok":true,"ms":started.elapsed().as_millis(),"text":text}))
+}
+
 fn payload(
     profile: &Profile,
     instructions: &str,
@@ -325,5 +444,91 @@ mod tests {
         assert!(!headers.iter().any(|(name, _)| name == "Authorization"));
         assert_eq!(body["system"], "instructions");
         assert_eq!(response("anthropic",&json!({"stop_reason":"end_turn","content":[{"type":"text","text":"one"},{"type":"text","text":"two"}],"usage":{"input_tokens":3,"output_tokens":2}})).unwrap()["text"],"one\ntwo");
+    }
+}
+
+#[cfg(test)]
+mod test_connectivity {
+    use super::*;
+    use crate::{config::Config, database, network, plugins, tasks};
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+
+    async fn app(root: &std::path::Path, fixture: Arc<Mutex<network::TestResponses>>) -> App {
+        let data = root.join("data");
+        let mut client = network::Client::new(None);
+        client.fixture = Some(fixture);
+        let config = Config {
+            data_dir: data.clone(),
+            export_dir: root.join("dist"),
+            frontend: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend"),
+            ..Config::default()
+        };
+        let app = App {
+            db: database::open(&data).await.unwrap(),
+            tasks: tasks::open(&root.join("work")).await.unwrap(),
+            network: client,
+            plugins: Default::default(),
+            data,
+            config: Arc::new(config),
+            shutdown: tokio_util::sync::CancellationToken::new(),
+            password_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            media_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            content_lock: Arc::new(tokio::sync::RwLock::new(())),
+        };
+        plugins::migrate(&app).await.unwrap();
+        app
+    }
+
+    #[tokio::test]
+    async fn connectivity_test_covers_form_and_saved_profiles() {
+        let root = tempfile::tempdir().unwrap();
+        let fixture = Arc::new(Mutex::new(network::TestResponses::default()));
+        let app = app(root.path(), fixture.clone()).await;
+        {
+            let mut responses = fixture.lock().unwrap();
+            responses.responses.insert(
+                "https://model.example/v1/responses".into(),
+                json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"正常"}]}],"usage":{"input_tokens":3,"output_tokens":2}}).to_string().into_bytes(),
+            );
+            responses.responses.insert(
+                "https://model.example/v1/messages".into(),
+                json!({"error":{"message":"invalid api key"}})
+                    .to_string()
+                    .into_bytes(),
+            );
+            responses
+                .statuses
+                .insert("https://model.example/v1/messages".into(), 401);
+        }
+        // 表单模式：未保存也可测
+        let result = test(&app, &json!({"protocol":"responses","base_url":"https://model.example/v1","model":"m1","max_tokens":256,"api_key":"form-key"})).await.unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["text"], "正常");
+        assert!(result["ms"].as_u64().is_some());
+        // 保存后 id 直测：密钥留空回退已保存值
+        let saved = save(&app, &json!({"name":"存储配置","protocol":"responses","base_url":"https://model.example/v1","model":"m1","max_tokens":256,"api_key":"stored-key"})).await.unwrap();
+        test(&app, &json!({"id":saved["id"]})).await.unwrap();
+        // 表单模式改地址但密钥留空 → 拒绝
+        let error = test(&app, &json!({"id":saved["id"],"protocol":"responses","base_url":"https://other.example/v1","model":"m1","max_tokens":256})).await.unwrap_err();
+        assert!(error.to_string().contains("重新填写 API Key"));
+        // 未保存且无密钥 → 拒绝
+        assert!(test(&app, &json!({"protocol":"responses","base_url":"https://model.example/v1","model":"m1","max_tokens":256})).await.is_err());
+        // HTTP 401 透传
+        let error = test(&app, &json!({"protocol":"anthropic","base_url":"https://model.example/v1","model":"m1","max_tokens":256,"api_key":"bad"})).await.unwrap_err();
+        assert!(error.to_string().contains("HTTP 401"));
+        // 2xx 但形状不符
+        fixture.lock().unwrap().responses.insert(
+            "https://model.example/v1/chat/completions".into(),
+            json!({"unexpected":true}).to_string().into_bytes(),
+        );
+        let error = test(&app, &json!({"protocol":"chat_completions","base_url":"https://model.example/v1","model":"m1","max_tokens":256,"api_key":"k"})).await.unwrap_err();
+        assert!(error.to_string().contains("不符合所选协议"));
+        // 无效协议与缺少 id
+        assert!(test(&app, &json!({"protocol":"grpc"})).await.is_err());
+        assert!(test(&app, &json!({})).await.is_err());
+        // 连接失败
+        let error = test(&app, &json!({"protocol":"responses","base_url":"https://missing.example/v1","model":"m1","max_tokens":256,"api_key":"k"})).await.unwrap_err();
+        assert!(error.to_string().contains("无法连接模型服务"));
     }
 }
