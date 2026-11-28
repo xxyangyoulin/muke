@@ -172,11 +172,13 @@ fn response(protocol: &str, value: &Value) -> anyhow::Result<Value> {
             )
         }
         "anthropic" => {
-            if !matches!(
-                value["stop_reason"].as_str(),
-                Some("end_turn" | "stop_sequence")
-            ) {
-                bail!("模型未完成文本输出，请检查输出上限");
+            match value["stop_reason"].as_str() {
+                Some("end_turn" | "stop_sequence") => {}
+                Some("max_tokens") => bail!(
+                    "模型达到输出上限（stop_reason=max_tokens），请在后台模型配置中提高输出上限后重试"
+                ),
+                Some(reason) => bail!("模型未完成文本输出（stop_reason={reason}）"),
+                None => bail!("模型响应缺少 stop_reason，请检查接口的 Anthropic 协议兼容性"),
             }
             let text = value["content"]
                 .as_array()
@@ -264,6 +266,29 @@ pub async fn generate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn anthropic_incomplete_reasons_are_distinguished() {
+        let truncated = response(
+            "anthropic",
+            &json!({"stop_reason":"max_tokens","content":[{"type":"text","text":"partial"}]}),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(truncated.contains("stop_reason=max_tokens"));
+        assert!(truncated.contains("提高输出上限"));
+        let refusal = response("anthropic", &json!({"stop_reason":"refusal"}))
+            .unwrap_err()
+            .to_string();
+        assert!(refusal.contains("stop_reason=refusal"));
+        assert!(!refusal.contains("输出上限"));
+        assert!(
+            response("anthropic", &json!({"content":[]}))
+                .unwrap_err()
+                .to_string()
+                .contains("缺少 stop_reason")
+        );
+    }
+
     #[test]
     fn provider_payloads_and_completion_validation() {
         let mut profile = Profile {
